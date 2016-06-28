@@ -295,7 +295,7 @@ def tms_test(base="gray", helix="yellow", tms_helix="green"):
     ph(stride(), helix, fix=False)
     ph(hmmtop(), tms_helix, fix=True)
 
-def paint_tmss(start_hue=0, end_hue=240, expand=0, termini=False, gray=False):
+def paint_tmss(start_hue=0, end_hue=240, expand=0, shade=0.5, termini=False, gray=False, offset=0):
     """
 DESCRIPTION
 
@@ -303,7 +303,7 @@ DESCRIPTION
 
 USAGE
 
-    paint_tmss[ start_hue[, end_hue[, expand[, termini[, gray]]]]]
+    paint_tmss[ start_hue[, end_hue[, expand[, shade[, termini[, gray]]]]]]
 
 ARGUMENTS
 
@@ -313,25 +313,43 @@ ARGUMENTS
 
     expand = int: Number of residues to expand predicted TMSs in each direction {default: 0}
 
+    shade = float: How much to shade each additional chain {default: 1.0}
+
     termini = bool: Whether to paint first/last TMS according to helix orientation
 
     gray = bool: Whether to gray out the rest of the structure(s)
+
+    offset = int: How much to shift starting hue  for each additional chain {default: 0}
     """
     stuff = hmmtop()
     expand = int(expand)
-
+    shade = float(shade)
+    offset = int(offset)
+    shade_now = 0.9 * 100
+    objid = 0
     if gray: pymol.cmd.color("gray")
+
     for o in stuff.keys():
         pymol.cmd.save(o + ".tmp.pdb", o)
         m = get_fasta_mapping(o + ".tmp.pdb")
         os.remove(o + ".tmp.pdb")
+
+
         for c in stuff[o].keys():
-            for hc in zip(gradient(len(stuff[o][c]), start_hue, end_hue), stuff[o][c]):
+            for i in range(len(stuff[o][c])):
+                hc = (gradient(len(stuff[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), stuff[o][c][i])
+            #for hc in zip(gradient(len(stuff[o][c]), start_hue, end_hue, v=shade_now), stuff[o][c]):
                 a = str(int(m[o][c][int(hc[1].start)]) - expand)
                 b = str(int(m[o][c][int(hc[1].end)]) + expand)
-                pymol.cmd.color(hc[0], o + " and c. " + c + " and i. " + a + "-" + b)
+                pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
+                #print([hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b])
                 if termini:
                     pymol.cmd.color("nitrogen", o + " and c. " + c + " and i. " + str(int(a)-1+1))
                     pymol.cmd.color("oxygen", o + " and c. " + c + " and i. " + str(int(b)+1-1))
+            shade_now *= shade
+            objid += 1
+
+#next colorer:
+#accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
 
 pymol.cmd.extend("paint_tmss", paint_tmss)

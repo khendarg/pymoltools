@@ -11,6 +11,11 @@ import subprocess
 
 
 def cat(fn):
+    """
+DESCRIPTION
+
+    "cat" dumps a file and returns its contents
+    """
     fh = open(fn)
     s = ""
     for l in fh:
@@ -19,6 +24,11 @@ def cat(fn):
     return s
 
 def h2rgb(h, shade=1):
+    """
+DESCRIPTION
+
+    "h2rgb" converts hue values to RGB hexes, assuming a saturation of 100%
+    """
     v = shade
     r = int(h/60.)
     c = ()
@@ -35,11 +45,31 @@ def h2rgb(h, shade=1):
     #m - r, 300
     elif r == 5: c = (1.0, 0.0, 1 - (h - 300)/60.)
 
-    #print(str.format("0x%x%x%x", ((int(c[0]*255*v), int(c[1]*255*v), int(c[2]*255*v)))))
     return "0x{:02x}{:02x}{:02x}".format(int(c[0]*255*v), int(c[1]*255*v), int(c[2]*255*v))
     return (int(c[0]*255*v), int(c[1]*255*v), int(c[2]*255*v))
 
 def dist2rgb(dist, shade=1):
+    """
+DESCRIPTION
+
+    "dist2rgb" takes distances (in \oAngstroms) and returns hues
+
+NOTES
+
+    As currently implemented, dist2rgb returns the following hues for the following distances:
+
+    Distance | Hue | Color
+    ---------+-----+--------
+    <1       | 240 | Blue
+    2.3      | 180 | Cyan
+    3.5      | 120 | Green
+    4.8      | 60  | Yellow
+    >6       | 0   | Red
+
+TODO
+
+    Use blackbody spectrum instead?
+    """
     if dist > 6: return h2rgb(0, shade)
     elif dist < 1: return h2rgb(240, shade)
     #dist = [1, 6]
