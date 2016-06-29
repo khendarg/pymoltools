@@ -24,3 +24,7 @@ superposter.py
     also by SSM
 
     parse_ssm_file : Load superpose output and display the results
+
+seqtools.py
+
+    seqload : Load extended sequence data from coordinates files (if possible)
