@@ -327,9 +327,13 @@ ARGUMENTS
     offset = int(offset)
     shade_now = 0.9 * 100
     objid = 0
-    try: if int(gray): pymol.cmd.color("gray")
-	except ValueError:
-		if not ("f" in gray or "n" in gray): pymol.cmd.color("gray")
+    try: 
+        if int(gray): 
+            pymol.cmd.color("gray")
+    #except ValueError:
+    except:
+        if "f" not in gray and "n" not in gray: 
+            pymol.cmd.color("gray")
 
     for o in stuff.keys():
         pymol.cmd.save(o + ".tmp.pdb", o)

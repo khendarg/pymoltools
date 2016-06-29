@@ -31,8 +31,8 @@ parsemore["_pdbx_poly_seq_scheme.auth_seq_num"] \
 )
 			#s1 = ""
 			s2 = ""
-			for i in printme: print(i[1], i[2])
-			#for i in printme: #print(i[1], i[2])
+			#for i in printme: print(i[1], i[2])
+			for i in printme: #print(i[1], i[2])
 				#s1 += Bio.PDB.protein_letters_3to1[i[1]]
 				if i[2] == "?": s2 += "X"
 				else: s2 += Bio.PDB.protein_letters_3to1[i[2]]
