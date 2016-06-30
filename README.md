@@ -10,6 +10,8 @@ colorhelices.py
 
     paint_tmss_orig : Requires HMMTOP, paints helices in CIF files based on their UniProt sequences
 
+    tms_paint : Paints certain residues according to their relationship to TMSs
+
 goodies.py
 
     cv : Shortcut for changing representations

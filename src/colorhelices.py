@@ -339,9 +339,9 @@ def paint_test(selection="sele", gray=0):
 
     if str2bool(gray): pymol.cmd.color("gray", selection)
 
-    pymol.cmd.color("white", selection + " and r. LEU+ALA+ILE+VAL+PHE")
+    pymol.cmd.color("white", selection + "and ss H and r. LEU+ALA+ILE+VAL+PHE")
     pymol.cmd.color("blue", selection + " and r. ARG+LYS")
-    pymol.cmd.color("purple", selection + " and r. TRP+TYR")
+    pymol.cmd.color("purple", selection + "and ss H and r. TRP+TYR")
 
 def paint_tmss(start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
     """
