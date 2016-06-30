@@ -9,6 +9,7 @@ import os
 import re
 import Bio.PDB
 import subprocess 
+import math
 
 def dictcat(x, indentcount=0):
     dlm = "    "
@@ -42,18 +43,20 @@ DESCRIPTION
     elif 5 <= hueimage and hueimage < 6: rgbtuple = (chroma, 0, x)
     else: rgbtuple = (0,0,0)
     m = hsv[2] - chroma
-    rgb = (int((rgbtuple[0] + m)*2.55), int((rgbtuple[1] + m)*2.55), int((rgbtuple[2] + m)*2.55))
     rgb = (int((rgbtuple[0] + m)*2.555), int((rgbtuple[1] + m)*2.555), int((rgbtuple[2] + m)*2.555))
-    #rgb = ((rgbtuple[0] + m), (rgbtuple[1] + m), (rgbtuple[2] + m))
 
     return "0x%02.x%02.x%02.x" % rgb 
-    return "0x%x%x%x" % rgb 
 
 def gradient(n, hue_start=0, hue_end=240, s=90, v=90):
+    """
+DESCRIPTION
+
+    Returns a list of RGB hexes for a continuous hue gradient from a starting hue to an ending hue with constant saturation and value
+    """
     n = int(n) - 1
     colors = []
     if n:
-        for h in range(hue_start, hue_end + 1, (hue_end - hue_start)/n):
+        for h in range(hue_start, hue_end + 1, int(math.ceil((hue_end - hue_start)/n))):
             colors.append(hsv2rgb(h, s, v))
         return colors
     else: 
@@ -82,45 +85,71 @@ ARGUMENTS
 
     selection = string: selection of interest {default: sele}
     """
+    #boilerplate for detecting whether a selection (usually sele) is enabled
+    #runs stride on everything if no appropriate selection is available
+
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
+
+    #save state to avoid cluttering the user's workspace
 
     starting_names = set(pymol.cmd.get_names("all"))
     enabled_names = pymol.cmd.get_names("all", True)
 
-    #pymol.cmd.split_chains(selection)
     for o in enabled_names: pymol.cmd.split_chains(o)
 
     chains = {}
+
+    #create a nice, hierarchical dict with all the chains...
 
     for c in pymol.cmd.get_names("all", True):
         try: chains[c[0:-2]][c[-1]] = []
         except KeyError: chains[c[0:-2]] = {c[-1]:[]}
 
-    #for o in chains.keys():
+    #...and iterate over it in an orderly fashion
+
     for o in sorted(chains.keys()):
         for c in sorted(chains[o].keys()): 
 
+            #write a temporary pdb file with the coordinates of the current chain
+
             pymol.cmd.save("tmp.pdb", o + " and c. " + c)
+
+            #run stride on the resulting pdb file and remove it
 
             struck = subprocess.check_output(["stride", "tmp.pdb"])
             os.remove("tmp.pdb")
 
+            #assign more helices based on stride's assignments
+            #TODO: check if other ss (even no ss) should be reassigned as well
+
             for l in re.split("\n", struck): 
-                if "LOC" in l and "Helix" in l:
+                if "LOC" and "Helix" in l:
                     h = Helix(l[22:27].strip(), l[39:45].strip(), l[28])
                     try: chains[o][c].append(h)
                     except KeyError: chains[o][c] = [h]
                     #pymol.cmd.color("red", o + " and c. " + c + " and i. " + l[22:27].strip() + "-" + l[39:45].strip())
+
+    #restore state
 
     ending_names = set(pymol.cmd.get_names("all"))
 
     for i in ending_names^starting_names: pymol.cmd.delete(i)
     for i in enabled_names: pymol.cmd.enable(i)
 
+    #return the hierarchical dict containing chains and now assigned helices
+
     return chains
 
 def hmmtop(selection="sele"):
+    """
+DESCRIPTION
 
+    hmmtop runs hmmtop on loaded sequences
+
+NOTES
+
+    Many if not most loaded sequences will be incomplete relative to gene product sequences. Use with caution.
+    """
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
 
     starting_names = pymol.cmd.get_names("all")
@@ -154,7 +183,9 @@ def hmmtop(selection="sele"):
     return helices
     
 pymol.cmd.extend("hmmtop", hmmtop)
+
 def get_helices(coordfile):
+
     helices = {}
     if "pdb" in coordfile:
         fh = open(coordfile)
@@ -295,7 +326,19 @@ def tms_test(base="gray", helix="yellow", tms_helix="green"):
     ph(stride(), helix, fix=False)
     ph(hmmtop(), tms_helix, fix=True)
 
-def paint_tmss(start_hue=0, end_hue=240, expand=0, shade=0.5, termini=False, gray=False, offset=0):
+def paint_test(selection="sele", gray=0):
+    if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
+
+    try: 
+        if int(gray): pymol.cmd.color("gray", selection)
+    except ValueError:
+        if "n" and "f" not in gray: pymol.cmd.color("gray", selection)
+
+    pymol.cmd.color("white", selection + " and r. LEU+ALA+ILE+VAL+PHE")
+    pymol.cmd.color("blue", selection + " and r. ARG+LYS")
+    pymol.cmd.color("purple", selection + " and r. TRP+TYR")
+
+def paint_tmss(start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
     """
 DESCRIPTION
 
@@ -322,6 +365,8 @@ ARGUMENTS
     offset = int: How much to shift starting hue  for each additional chain {default: 0}
     """
     stuff = hmmtop()
+    start_hue = int(start_hue)
+    end_hue = int(end_hue)
     expand = int(expand)
     shade = float(shade)
     offset = int(offset)
@@ -330,8 +375,8 @@ ARGUMENTS
     try: 
         if int(gray): 
             pymol.cmd.color("gray")
-    #except ValueError:
-    except:
+    except ValueError:
+    #except:
         if "f" not in gray and "n" not in gray: 
             pymol.cmd.color("gray")
 
@@ -358,4 +403,85 @@ ARGUMENTS
 #next colorer:
 #accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
 
+def paint_tmss_orig(filename, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
+    """
+DESCRIPTION
+
+    paint_tmss_orig colors TMSs based on associated UniProt sequences
+    """
+
+    if "pdb" in filename: 
+        raise IOError("Legacy PDB support is not yet implemented")
+    else: parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
+
+    start_hue = int(start_hue)
+    end_hue = int(end_hue)
+    expand = int(expand)
+    shade = float(shade)
+    offset = int(offset)
+    shade_now = 0.9 * 100
+    objid = 0
+    try: 
+        if int(gray): 
+            pymol.cmd.color("gray")
+    except ValueError:
+    #except:
+        if "f" not in gray and "n" not in gray: 
+            pymol.cmd.color("gray")
+
+    seqs = {}
+
+    raw_seqs = zip(\
+parseme["_pdbx_poly_seq_scheme.pdb_strand_id"],\
+parseme["_pdbx_poly_seq_scheme.mon_id"],\
+parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
+
+    for l in raw_seqs:
+        try:
+            seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
+        except KeyError:
+            seqs[l[0]] = Bio.PDB.protein_letters_3to1[l[1]]
+
+    helices = {}
+
+    for k in sorted(seqs.keys()):
+
+        #prepare to run hmmtop
+
+        p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        #pipe in the sequence, pipe out the output
+
+        tmss, junk = p.communicate(">"+filename+":"+k+"\n"+seqs[k])
+
+        tmss = tmss.split()
+
+        #o = tmss[2][:-2]
+        o = filename[:-4]
+        c = tmss[2][-1]
+        try: helices[o][c] = []
+        except KeyError: helices[o] = {c:[]}
+
+        for i in range(5, len(tmss) - 1, 2):
+            helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
+    o = filename[:-4]
+
+    for c in helices[o].keys():
+        for i in range(len(helices[o][c])):
+            hc = (gradient(len(helices[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), helices[o][c][i])
+        #for hc in zip(gradient(len(helices[o][c]), start_hue, end_hue, v=shade_now), helices[o][c]):
+            #a = str(int(helices[o][c][int(hc[1].start)]) - expand)
+            #b = str(int(helices[o][c][int(hc[1].end)]) + expand)
+            a = str(int(helices[o][c][i].start) - expand)
+            b = str(int(helices[o][c][i].end) + expand)
+            pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
+            #print([hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b])
+            if termini:
+                pymol.cmd.color("nitrogen", o + " and c. " + c + " and i. " + str(int(a)-1+1))
+                pymol.cmd.color("oxygen", o + " and c. " + c + " and i. " + str(int(b)+1-1))
+        shade_now *= shade
+        objid += 1
+
 pymol.cmd.extend("paint_tmss", paint_tmss)
+pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
+pymol.cmd.extend("tms_paint", paint_test)
