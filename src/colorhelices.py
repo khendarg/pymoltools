@@ -407,7 +407,7 @@ SEE ALSO
 #next colorer:
 #accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
 
-def paint_tmss_orig(filename, network=1, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
+def paint_tmss_orig(filename, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
     """
 DESCRIPTION
 
@@ -415,13 +415,11 @@ DESCRIPTION
 
 USAGE
 
-    paint_tmss_orig filename[, network[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]]
+    paint_tmss_orig filename[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]
 
 ARGUMENTS
 
     filename = str: File to check for associated UniProt accessions
-
-    network = bool: Whether to download sequences (generally faster and uses far less CPU) {default:1}
 
     start_hue = int: First hue in gradient {default:0}
 
@@ -481,8 +479,12 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
                 seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
             except KeyError:
                 seqs[l[0]] = ">" + filename + ":" + l[0] + "\n" + Bio.PDB.protein_letters_3to1[l[1]]
+    if len(pymol.cmd.get_names("objects", True)) == 1: target = pymol.cmd.get_names("objects", True)[0]
 
     helices = {}
+
+    try: o = target
+    except NameError: o = filename[:-4]
 
     for k in sorted(seqs.keys()):
 
@@ -497,14 +499,12 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
         tmss = tmss.split()
 
         #o = tmss[2][:-2]
-        o = filename[:-4]
         c = tmss[2][-1]
         try: helices[o][c] = []
         except KeyError: helices[o] = {c:[]}
 
         for i in range(5, len(tmss) - 1, 2):
             helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
-    o = filename[:-4]
 
     for c in helices[o].keys():
         for i in range(len(helices[o][c])):
