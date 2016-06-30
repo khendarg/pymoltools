@@ -335,6 +335,20 @@ def tms_test(base="gray", helix="yellow", tms_helix="green"):
     ph(hmmtop(), tms_helix, fix=True)
 
 def paint_test(selection="sele", gray=0):
+    """
+DESCRIPTION
+
+    "paint_test" colors based on common TMS features
+
+ARGUMENTS
+
+    selection = str: Selection to color {default: sele}
+
+NOTES
+
+    paint_test should NOT be used for serious TMS assignment. It is likely useful only for checking very small (~2TMS) structures with modest hydrophilic domains for probable TMSs.
+
+    """
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
 
     if str2bool(gray): pymol.cmd.color("gray", selection)
@@ -373,7 +387,13 @@ SEE ALSO
 
     paint_tmss_orig
     """
+
+    #run HMMTOP on the sequences
+
     stuff = hmmtop()
+
+    #make sure arguments are properly typed
+
     start_hue = int(start_hue)
     end_hue = int(end_hue)
     expand = int(expand)
@@ -382,18 +402,23 @@ SEE ALSO
     shade_now = 0.9 * 100
     objid = 0
 
+    #gray out everything if requested
+
     if str2bool(gray): pymol.cmd.color("gray")
+
+    #save each object as a temporary PDB and extract sequence from there
 
     for o in stuff.keys():
         pymol.cmd.save(o + ".tmp.pdb", o)
         m = get_fasta_mapping(o + ".tmp.pdb")
         os.remove(o + ".tmp.pdb")
 
+        #now begin painting the TMSs
 
         for c in stuff[o].keys():
             for i in range(len(stuff[o][c])):
                 hc = (gradient(len(stuff[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), stuff[o][c][i])
-            #for hc in zip(gradient(len(stuff[o][c]), start_hue, end_hue, v=shade_now), stuff[o][c]):
+
                 a = str(int(m[o][c][int(hc[1].start)]) - expand)
                 b = str(int(m[o][c][int(hc[1].end)]) + expand)
                 pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
@@ -407,7 +432,7 @@ SEE ALSO
 #next colorer:
 #accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
 
-def paint_tmss_orig(filename, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
+def paint_tmss_orig(filename, selection=None, start_hue=0, end_hue=240, expand=0, shade=0.99, termini=False, gray=False, offset=0):
     """
 DESCRIPTION
 
@@ -415,11 +440,13 @@ DESCRIPTION
 
 USAGE
 
-    paint_tmss_orig filename[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]
+    paint_tmss_orig filename[, selection[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]
 
 ARGUMENTS
 
     filename = str: File to check for associated UniProt accessions
+
+    selection = str: Object or selection to color (required if ambiguous)
 
     start_hue = int: First hue in gradient {default:0}
 
@@ -427,7 +454,7 @@ ARGUMENTS
 
     expand = int: Number of residues to expand predicted TMSs in each direction {default:0}
 
-    shade = float: How much to shade each successive chain colored {default:0.8}
+    shade = float: How much to shade each successive chain colored {default:0.9}
 
     termini = bool: Whether to paint first/last TMS residues to display helix orientation
 
@@ -448,18 +475,35 @@ SEE ALSO
     shade_now = 0.9 * 100
     objid = 0
 
-    if str2bool(gray): pymol.cmd.color("gray")
+    #attempt to detect targets slightly intelligently
+    if not selection:
+        #if more than one selection/object exists and selection is unspecified, exit
+        if len(pymol.cmd.get_names("all", True)) == 1: selection = pymol.cmd.get_names("all", True)[0]
+        else:
+            print("Unspecified selection, exiting")
+            sys.exit(1)
+
+    #now gray out anything if gray is set
+    if str2bool(gray): pymol.cmd.color("gray", selection)
 
     seqs = {}
 
+    #check for file type
+    #TODO: read last line instead of filename
+
     if "pdb" in filename: 
+
+        #if legacy PDB, download UNP (UniProt) FASTAs to memory
+
         f = open(filename)
         ids = {}
+
         for line in f:
             if "DBREF" not in line: continue
             if line[26:29] != "UNP": continue
             ids[line[12]] = line[33:39]
         f.close()
+
         for i in sorted(ids):
             s = subprocess.check_output(["curl", "http://www.uniprot.org/uniprot/"+ids[i]+".fasta"])
             s = s.split("\n")
@@ -467,7 +511,11 @@ SEE ALSO
             for ss in s[1:]:
                 seqs[i] += ss
 
-    else: 
+    else:
+
+        #if CIF, turn the CIF file into a dict
+        #TODO: look for the UNP DBREF equivalents and download too because MMCIF2Dict is horrendously slow
+
         parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
         raw_seqs = zip(\
 parseme["_pdbx_poly_seq_scheme.pdb_strand_id"],\
@@ -475,47 +523,50 @@ parseme["_pdbx_poly_seq_scheme.mon_id"],\
 parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
 
         for l in raw_seqs:
+
+            #initiate a basic FASTA header and elongate
+
             try:
                 seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
             except KeyError:
                 seqs[l[0]] = ">" + filename + ":" + l[0] + "\n" + Bio.PDB.protein_letters_3to1[l[1]]
-    if len(pymol.cmd.get_names("objects", True)) == 1: target = pymol.cmd.get_names("objects", True)[0]
 
     helices = {}
 
-    try: o = target
-    except NameError: o = filename[:-4]
+    o = selection
 
     for k in sorted(seqs.keys()):
 
         #prepare to run hmmtop
 
-        p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-        #pipe in the sequence, pipe out the output
+        #run HMMTOP, piping in the sequence and piping out the output
 
-        tmss, junk = p.communicate(seqs[k])
+        tmss = p.communicate(seqs[k])[0]
 
         tmss = tmss.split()
 
-        #o = tmss[2][:-2]
         c = tmss[2][-1]
+
+        #begin constructing the dicts containing the helix objects
+
         try: helices[o][c] = []
         except KeyError: helices[o] = {c:[]}
+
+        #parse HMMTOP output
 
         for i in range(5, len(tmss) - 1, 2):
             helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
 
+    #recurse through the helices, coloring them and stuff
+
     for c in helices[o].keys():
         for i in range(len(helices[o][c])):
             hc = (gradient(len(helices[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), helices[o][c][i])
-        #for hc in zip(gradient(len(helices[o][c]), start_hue, end_hue, v=shade_now), helices[o][c]):
-            #a = str(int(helices[o][c][int(hc[1].start)]) - expand)
-            #b = str(int(helices[o][c][int(hc[1].end)]) + expand)
             a = str(int(helices[o][c][i].start) - expand)
             b = str(int(helices[o][c][i].end) + expand)
             pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
-            #print([hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b])
             if termini:
                 pymol.cmd.color("nitrogen", o + " and c. " + c + " and i. " + str(int(a)-1+1))
                 pymol.cmd.color("oxygen", o + " and c. " + c + " and i. " + str(int(b)+1-1))
