@@ -6,7 +6,9 @@ Contents:
 
 colorhelices.py
 
-    paint_tmss : Requires HMMTOP, paints helices based on HMMTOP-predicted TMSs
+    paint_tmss : Requires HMMTOP, paints helices based on HMMTOP-predicted TMSs based on ATOM record sequences
+
+    paint_tmss_orig : Requires HMMTOP, paints helices in CIF files based on their UniProt sequences
 
 goodies.py
 
