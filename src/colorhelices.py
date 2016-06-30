@@ -62,6 +62,14 @@ DESCRIPTION
     else: 
         return [hsv2rgb((hue_start + hue_end)/2.0, s, v)]
 
+def str2bool(s):
+    try:
+        if int(s): return True
+        else: return False
+    except ValueError:
+        if "n" and "f" in s: return False
+        else: return True
+
 class Helix:
     def __init__(self, start, end, chain="A"):
         self.start = start
@@ -329,10 +337,7 @@ def tms_test(base="gray", helix="yellow", tms_helix="green"):
 def paint_test(selection="sele", gray=0):
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
 
-    try: 
-        if int(gray): pymol.cmd.color("gray", selection)
-    except ValueError:
-        if "n" and "f" not in gray: pymol.cmd.color("gray", selection)
+    if str2bool(gray): pymol.cmd.color("gray", selection)
 
     pymol.cmd.color("white", selection + " and r. LEU+ALA+ILE+VAL+PHE")
     pymol.cmd.color("blue", selection + " and r. ARG+LYS")
@@ -363,6 +368,10 @@ ARGUMENTS
     gray = bool: Whether to gray out the rest of the structure(s)
 
     offset = int: How much to shift starting hue  for each additional chain {default: 0}
+
+SEE ALSO
+
+    paint_tmss_orig
     """
     stuff = hmmtop()
     start_hue = int(start_hue)
@@ -372,13 +381,8 @@ ARGUMENTS
     offset = int(offset)
     shade_now = 0.9 * 100
     objid = 0
-    try: 
-        if int(gray): 
-            pymol.cmd.color("gray")
-    except ValueError:
-    #except:
-        if "f" not in gray and "n" not in gray: 
-            pymol.cmd.color("gray")
+
+    if str2bool(gray): pymol.cmd.color("gray")
 
     for o in stuff.keys():
         pymol.cmd.save(o + ".tmp.pdb", o)
@@ -403,16 +407,40 @@ ARGUMENTS
 #next colorer:
 #accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
 
-def paint_tmss_orig(filename, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
+def paint_tmss_orig(filename, network=1, start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
     """
 DESCRIPTION
 
     paint_tmss_orig colors TMSs based on associated UniProt sequences
-    """
 
-    if "pdb" in filename: 
-        raise IOError("Legacy PDB support is not yet implemented")
-    else: parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
+USAGE
+
+    paint_tmss_orig filename[, network[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]]
+
+ARGUMENTS
+
+    filename = str: File to check for associated UniProt accessions
+
+    network = bool: Whether to download sequences (generally faster and uses far less CPU) {default:1}
+
+    start_hue = int: First hue in gradient {default:0}
+
+    end_hue = int: Last hue in gradient {default:240}
+
+    expand = int: Number of residues to expand predicted TMSs in each direction {default:0}
+
+    shade = float: How much to shade each successive chain colored {default:0.8}
+
+    termini = bool: Whether to paint first/last TMS residues to display helix orientation
+
+    gray = bool: Whether to gray out the rest of the structure(s)
+
+    offset = int: How much to shift the starting hue for each successive chain colored {default:0}
+
+SEE ALSO
+
+    paint_tmss
+    """
 
     start_hue = int(start_hue)
     end_hue = int(end_hue)
@@ -421,26 +449,38 @@ DESCRIPTION
     offset = int(offset)
     shade_now = 0.9 * 100
     objid = 0
-    try: 
-        if int(gray): 
-            pymol.cmd.color("gray")
-    except ValueError:
-    #except:
-        if "f" not in gray and "n" not in gray: 
-            pymol.cmd.color("gray")
+
+    if str2bool(gray): pymol.cmd.color("gray")
 
     seqs = {}
 
-    raw_seqs = zip(\
+    if "pdb" in filename: 
+        f = open(filename)
+        ids = {}
+        for line in f:
+            if "DBREF" not in line: continue
+            if line[26:29] != "UNP": continue
+            ids[line[12]] = line[33:39]
+        f.close()
+        for i in sorted(ids):
+            s = subprocess.check_output(["curl", "http://www.uniprot.org/uniprot/"+ids[i]+".fasta"])
+            s = s.split("\n")
+            seqs[i] = ">" + filename + ":" + i + "\n"
+            for ss in s[1:]:
+                seqs[i] += ss
+
+    else: 
+        parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
+        raw_seqs = zip(\
 parseme["_pdbx_poly_seq_scheme.pdb_strand_id"],\
 parseme["_pdbx_poly_seq_scheme.mon_id"],\
 parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
 
-    for l in raw_seqs:
-        try:
-            seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
-        except KeyError:
-            seqs[l[0]] = Bio.PDB.protein_letters_3to1[l[1]]
+        for l in raw_seqs:
+            try:
+                seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
+            except KeyError:
+                seqs[l[0]] = ">" + filename + ":" + l[0] + "\n" + Bio.PDB.protein_letters_3to1[l[1]]
 
     helices = {}
 
@@ -452,7 +492,7 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
 
         #pipe in the sequence, pipe out the output
 
-        tmss, junk = p.communicate(">"+filename+":"+k+"\n"+seqs[k])
+        tmss, junk = p.communicate(seqs[k])
 
         tmss = tmss.split()
 
