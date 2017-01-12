@@ -4,13 +4,7 @@ Copyleft 2016 by Kevin Hendargo, all rights reversed
 """
 from __future__ import print_function
 
-import pymol
-import os 
-import re
-import Bio.PDB
-import subprocess 
-import math
-import sys
+import pymol, os, re, Bio.PDB, subprocess, math, sys, tempfile
 
 def dictcat(x, indentcount=0):
     dlm = "    "
@@ -121,12 +115,13 @@ ARGUMENTS
 
             #write a temporary pdb file with the coordinates of the current chain
 
-            pymol.cmd.save("tmp.pdb", o + " and c. " + c)
+            f = tempfile.NamedTemporaryFile(delete=False)
+            pymol.cmd.save(f.name, o + " and c. " + c)
 
             #run stride on the resulting pdb file and remove it
 
-            struck = subprocess.check_output(["stride", "tmp.pdb"])
-            os.remove("tmp.pdb")
+            struck = subprocess.check_output(["stride", f.name])
+            f.delete()
 
             #assign more helices based on stride's assignments
             #TODO: check if other ss (even no ss) should be reassigned as well
@@ -149,7 +144,7 @@ ARGUMENTS
 
     return chains
 
-def hmmtop(selection="sele"):
+def hmmtop(selection=None):
     """
 DESCRIPTION
 
@@ -157,42 +152,37 @@ DESCRIPTION
 
 NOTES
 
-    Many if not most loaded sequences will be incomplete relative to gene product sequences. Use with caution.
+    Many if not most loaded sequences will be incomplete relative to gene product sequences. Use with extreme caution and monitor sodium intake.
     """
-    if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
+    #this turns out to be unexpected behavior
+    #if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
+    if selection == None: selection = "(all)"
 
-    starting_names = pymol.cmd.get_names("all")
-    enabled_names = pymol.cmd.get_names("all", True)
-
-    pymol.cmd.split_chains(selection)
+    pymol.cmd.disable("all")
+    pymol.cmd.enable(selection)
 
     helices = {}
 
-    for i in pymol.cmd.get_names("all", True):
 
-        p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for o in pymol.cmd.get_names("objects", True):
+        
+        for c in pymol.cmd.get_chains(selection + " and " + o):
+            fasta = re.sub("\?", "X", pymol.cmd.get_fastastr("%s and %s and c. %s" % (selection, o, c)))
+            print(fasta)
 
-        tmss, junk = p.communicate(pymol.cmd.get_fastastr(i))
+            p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            tmss, stderr = p.communicate(fasta)
 
-        tmss = tmss.split()
+            tmss = tmss.split()
 
-        o = tmss[2][:-2]
-        c = tmss[2][-1]
-        try: helices[o][c] = []
-        except KeyError: helices[o] = {c:[]}
+            try: helices[o][c] = []
+            except KeyError: helices[o] = {c:[]}
+            for i in range(5, len(tmss)-1, 2):
+                helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
+            print(helices)
 
-        for i in range(5, len(tmss) - 1, 2):
-            helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
-
-    ending_names = pymol.cmd.get_names("all")
-    for i in list(set(ending_names)^set(starting_names)):
-        pymol.cmd.delete(i)
-    for i in enabled_names:
-        pymol.cmd.enable(i)
     return helices
     
-pymol.cmd.extend("hmmtop", hmmtop)
-
 def get_helices(coordfile):
 
     helices = {}
@@ -223,18 +213,11 @@ def get_fasta_mapping(files, index=1):
     mapping = {}
     for fn in files:
         parseme = None
-        if "pdb" in fn:
-            parseme = Bio.PDB.PDBParser()
-            #print("Resolution:",Bio.PDB.parse_pdb_header(fn)["resolution"])
-            
-        else:
-            parseme = Bio.PDB.MMCIFParser()
-            #print(can_seq(fn, "cif"))
+        if "cif" in fn: parseme = Bio.PDB.MMCIFParser()
+        else: parseme = Bio.PDB.PDBParser()
 
-        stucco = parseme.get_structure(fn[0:fn.index(".")], fn)
-        #try: stucco = parseme.get_structure(fn[0:fn.index(".")], fn)
-        #except Bio.PDB.PDBExceptions.PDBConstructionException: 
-            
+        stucco = parseme.get_structure("LUNCH IS READY!", fn)
+
         mapping[stucco.get_id()] = {}
         #TODO: Fix broken PDBs
 
@@ -250,6 +233,7 @@ def get_fasta_mapping(files, index=1):
                     #renumbering stuff
                     mapping[c.get_full_id()[0]][c.get_id()][n] = i.get_id()[1]
                     n += 1
+    print(mapping)
     return mapping
 
 def get_fasta(files, index=1):
@@ -310,9 +294,10 @@ def ph(helxdict, color="red", fix=False):
     num = 0
     for o in helxdict.keys():
         if fix:
-            pymol.cmd.save(o + ".tmp.pdb", o)
-            m = get_fasta_mapping(o + ".tmp.pdb")
-            os.remove(o + ".tmp.pdb")
+            f = tempfile.NamedTemporaryFile(delete=False)
+            pymol.cmd.save(f.name, o)
+            m = get_fasta_mapping(f.name)
+            f.delete()
             for c in helxdict[o].keys():
                 for h in helxdict[o][c]:
                     a = str(m[o][c][int(h.start)])
@@ -410,9 +395,9 @@ SEE ALSO
     #save each object as a temporary PDB and extract sequence from there
 
     for o in stuff.keys():
-        pymol.cmd.save(o + ".tmp.pdb", o)
-        m = get_fasta_mapping(o + ".tmp.pdb")
-        os.remove(o + ".tmp.pdb")
+        f = tempfile.NamedTemporaryFile(delete=False)
+        pymol.cmd.save(f.name, o)
+        m = get_fasta_mapping(f.name)
 
         #now begin painting the TMSs
 
@@ -420,6 +405,7 @@ SEE ALSO
             for i in range(len(stuff[o][c])):
                 hc = (gradient(len(stuff[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), stuff[o][c][i])
 
+                print(m)
                 a = str(int(m[o][c][int(hc[1].start)]) - expand)
                 b = str(int(m[o][c][int(hc[1].end)]) + expand)
                 pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
@@ -618,3 +604,5 @@ pymol.cmd.extend("paint_tmss", paint_tmss)
 pymol.cmd.extend("pt", paint_tmss)
 pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
 pymol.cmd.extend("tms_paint", paint_test)
+pymol.cmd.extend("hmmtop", hmmtop)
+
