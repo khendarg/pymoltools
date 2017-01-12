@@ -3,12 +3,14 @@
 Copyleft 2016 Kevin Hendargo, all rights reversed.
 """
 from __future__ import print_function
+from __future__ import division
 
 import pymol
 import Bio.PDB
 import re, os
 import subprocess
 
+import time
 
 def cat(fn):
     """
@@ -373,6 +375,64 @@ NOTES
     base2 = file2.split("/")[-1].split(".")[0]
     return do_ssm(base1, base2, remove=2, expand=5)
 
+def read_ssm(rmsdfn, purge=True):
+    """
+DESCRIPTION
+
+    Reads superpose output and executes it
+
+USAGE
+
+    read_ssm filename
+    """
+    if purge: pymol.cmd.delete("all")
+    objs = []
+    f = open(rmsdfn)
+    foundit = 0
+    pdbfns = []
+    
+    class Interval:
+        def __init__(self, start):
+            self.start = start
+            self.end = start
+        def __str__(self): return "%d-%d", (self.start, self.end)
+        def extend(self, newindex):
+            if newindex == self.end + 1: 
+                self.end += 1
+                return 0
+            else: return 1
+    ranges = [[], []]
+    for l in f: 
+        l = l.strip()
+        if "r.m.s.d" in l or "Nalign" in l: print(l)
+
+        if "has been read in" in l:
+            pdbfn = re.split(" ", l)[2]
+            pdbfns.append(pdbfn)
+            pymol.cmd.load(pdbfn)
+            objs.append(re.split("/", pdbfn)[-1][:-4])
+
+#        if "|-------------+----------+-------------|" == l:
+#            foundit = 2
+#            continue
+#
+#        if foundit == 2:
+#            if not l[17]: continue
+#            else: pass
+#                
+#                #int(l[9:13])
+
+    os.system("superpose %s %s -o %s_mobile.pdb > /dev/null" % (pdbfns[0], pdbfns[1], objs[0]))
+    pymol.cmd.load("%s_mobile.pdb" % (objs[0]))
+
+    #pymol.cmd.disable("%s" % objs[0])
+    pymol.cmd.delete("%s" % objs[0])
+
+    pymol.cmd.set_name("%s_mobile" % objs[0], objs[0])
+
+    os.remove("%s_mobile.pdb" % objs[0])
+
 pymol.cmd.extend("do_ssm", do_ssm)
 pymol.cmd.extend("parse_ssm_file", parse_ssm_file)
 pymol.cmd.extend("load_and_ssm", load_and_ssm)
+pymol.cmd.extend("read_ssm", read_ssm)

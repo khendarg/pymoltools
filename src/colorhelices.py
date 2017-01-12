@@ -10,6 +10,7 @@ import re
 import Bio.PDB
 import subprocess 
 import math
+import sys
 
 def dictcat(x, indentcount=0):
     dlm = "    "
@@ -507,9 +508,38 @@ SEE ALSO
         for i in sorted(ids):
             s = subprocess.check_output(["curl", "http://www.uniprot.org/uniprot/"+ids[i]+".fasta"])
             s = s.split("\n")
-            seqs[i] = ">" + filename + ":" + i + "\n"
+            seqs[i] = ">" + filename + ":" + ids[i] + ":" + i + "\n"
             for ss in s[1:]:
                 seqs[i] += ss
+
+        p = Bio.PDB.PDBParser(filename)
+
+        struc = p.get_structure(selection, filename)
+
+        atomseqs = {}
+
+        for c in struc.get_chains():
+            atomseqs[c.get_id()] = ">" + filename + ":" + "ATOM:" + c.get_id() + "\n"
+            for r in c.get_residues():
+                try: atomseqs[c.get_id()] += Bio.PDB.protein_letters_3to1[r.get_resname()]
+                except KeyError: pass
+
+        for i in sorted(ids):
+            f = open(".seq1.tmp", "w")
+            f.write(seqs[i])
+            f.close()
+            f = open(".seq2.tmp", "w")
+            f.write(atomseqs[i])
+
+            f = open(".seq1.tmp")
+            f.close()
+            f = open(".seq2.tmp")
+            f.close()
+
+            os.system("needle -gapopen 10 -gapextend 0.5 -asequence .seq1.tmp -bsequence .seq2.tmp -outfile /dev/stdout")
+
+            os.remove(".seq1.tmp")
+            os.remove(".seq2.tmp")
 
     else:
 
@@ -517,6 +547,7 @@ SEE ALSO
         #TODO: look for the UNP DBREF equivalents and download too because MMCIF2Dict is horrendously slow
 
         parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
+        #if network disabled...
         raw_seqs = zip(\
 parseme["_pdbx_poly_seq_scheme.pdb_strand_id"],\
 parseme["_pdbx_poly_seq_scheme.mon_id"],\
@@ -531,6 +562,16 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
             except KeyError:
                 seqs[l[0]] = ">" + filename + ":" + l[0] + "\n" + Bio.PDB.protein_letters_3to1[l[1]]
 
+        #relevant = (\
+#parseme["_struct_ref.id"],\
+#parseme["_struct_ref.db_name"],\
+#parseme["_struct_ref.db_code"],\
+#parseme["_struct_ref.pdbx_db_accession"],\
+#parseme["_struct_ref.entity_id"])
+
+        #for i in relevant: print(i)
+
+        #return
     helices = {}
 
     o = selection
@@ -574,5 +615,6 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
         objid += 1
 
 pymol.cmd.extend("paint_tmss", paint_tmss)
+pymol.cmd.extend("pt", paint_tmss)
 pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
 pymol.cmd.extend("tms_paint", paint_test)
