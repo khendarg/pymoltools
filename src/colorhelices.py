@@ -14,15 +14,16 @@ def process_aa(threeletter):
     return y
 
 def sele2fa(selection="sele"):
-    fa = ">a|decent|title|goes|here\n"
+    fa = ">titleneeded\n"
     space = {"seq":[], "code":process_aa}
     pymol.cmd.iterate("sele and n. CA", "seq.append(code(resn))", space=space)
     for r in space["seq"]: fa += r
     return fa
 
-def xclip(selection="sele"): os.system("echo %s | xclip" % sele2fa(selection))
+def xclip(selection="sele"): 
+    os.system("echo '%s' | xclip" % sele2fa(selection))
 
-def pbcopy(selection="sele"): os.system("echo %s | pbcopy" % sele2fa(selection))
+def pbcopy(selection="sele"): os.system("echo '%s' | pbcopy" % sele2fa(selection))
 
 def dictcat(x, indentcount=0):
     dlm = "    "
@@ -267,6 +268,35 @@ def ph(helxdict, color="red", fix=False):
                 num = 0
 
 def paint_tmss(selection=None, start_hue=0, end_hue=240, expand=0, shade=0.9, saturation=0.7, termini=False, gray=False, offset=0):
+    """
+DESCRIPTION
+
+    "paint_tmss" calculates probable TMSs using HMMTOP and paints them sequentially
+
+USAGE
+
+    paint_tmss[ start_hue[, end_hue[, expand[, shade[, termini[, gray]]]]]]
+
+ARGUMENTS
+
+    start_hue = int: First hue in gradient {default: 0}
+
+    end_hue = int: Ending hue in gradient {default: 240}
+
+    expand = int: Number of residues to expand predicted TMSs in each direction {default: 0}
+
+    shade = float: How much to shade each additional chain {default: 1.0}
+
+    termini = bool: Whether to paint first/last TMS according to helix orientation
+
+    gray = bool: Whether to gray out the rest of the structure(s)
+
+    offset = int: How much to shift starting hue  for each additional chain {default: 0}
+
+SEE ALSO
+
+    paint_tmss_orig
+    """
 
     if selection == None: selection = "all"
 
