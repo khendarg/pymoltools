@@ -1,10 +1,28 @@
 #!/usr/bin/env python2
 """
-Copyleft 2016 by Kevin Hendargo, all rights reversed
+Copyleft 2017 by Kevin Hendargo, all rights reversed
 """
 from __future__ import print_function
 
 import pymol, os, re, Bio.PDB, subprocess, math, sys, tempfile
+
+def process_aa(threeletter):
+    y = ""
+    try: y = Bio.PDB.protein_letters_3to1[threeletter]
+    except AttributeError: y = Bio.PDB.to_one_letter_code[threeletter]
+    except KeyError: y = ""
+    return y
+
+def sele2fa(selection="sele"):
+    fa = ">a|decent|title|goes|here\n"
+    space = {"seq":[], "code":process_aa}
+    pymol.cmd.iterate("sele and n. CA", "seq.append(code(resn))", space=space)
+    for r in space["seq"]: fa += r
+    return fa
+
+def xclip(selection="sele"): os.system("echo %s | xclip" % sele2fa(selection))
+
+def pbcopy(selection="sele"): os.system("echo %s | pbcopy" % sele2fa(selection))
 
 def dictcat(x, indentcount=0):
     dlm = "    "
@@ -158,18 +176,21 @@ NOTES
     #if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
     if selection == None: selection = "(all)"
 
+    enabled = pymol.cmd.get_names("all", True)
+
     pymol.cmd.disable("all")
     pymol.cmd.enable(selection)
 
     helices = {}
 
-
     for o in pymol.cmd.get_names("objects", True):
         
         for c in pymol.cmd.get_chains(selection + " and " + o):
-            fasta = re.sub("\?", "X", pymol.cmd.get_fastastr("%s and %s and c. %s" % (selection, o, c)))
-            print(fasta)
-
+            fasta = ">%s_%s\n" % (o, c)
+            space = {"code":process_aa, "seq":[]}
+            pymol.cmd.iterate("%s and %s and c. %s and n. CA" % (selection, o, c), "seq.append(resn)", space=space)
+            for r in space["seq"]: fasta += process_aa(r)
+            
             p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             tmss, stderr = p.communicate(fasta)
 
@@ -179,7 +200,9 @@ NOTES
             except KeyError: helices[o] = {c:[]}
             for i in range(5, len(tmss)-1, 2):
                 helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
-            print(helices)
+
+    pymol.cmd.disable("all")
+    for x in enabled: pymol.cmd.enable(x)
 
     return helices
     
@@ -208,87 +231,15 @@ def get_helices(coordfile):
                 except KeyError: helices[ss[1]] = [Helix(ss[2], ss[3], ss[1])]
     return helices
 
-def get_fasta_mapping(files, index=1):
-    if type(files) is str: files = [files]
-    mapping = {}
-    for fn in files:
-        parseme = None
-        if "cif" in fn: parseme = Bio.PDB.MMCIFParser()
-        else: parseme = Bio.PDB.PDBParser()
+def get_renumber(selection):
+    if selection == None: selection = "(all)"
 
-        stucco = parseme.get_structure("LUNCH IS READY!", fn)
+    pymol.cmd.disable("all")
+    pymol.cmd.enable(selection)
 
-        mapping[stucco.get_id()] = {}
-        #TODO: Fix broken PDBs
+    for o in pymol.cmd.get_names("objects", True): pass
 
-        fastas = ""
-        for c in stucco.get_chains():
-            #renumbering stuff
-            n = index
-            mapping[c.get_full_id()[0]][c.get_id()] = {}
-
-            #residue-level stuff
-            for i in c.get_residues():
-                if Bio.PDB.is_aa(i):
-                    #renumbering stuff
-                    mapping[c.get_full_id()[0]][c.get_id()][n] = i.get_id()[1]
-                    n += 1
-    print(mapping)
-    return mapping
-
-def get_fasta(files, index=1):
-    if type(files) is str: files = [files]
-    fastas = ""
-    for fn in files:
-        parseme = None
-        if "pdb" in fn:
-            parseme = Bio.PDB.PDBParser()
-            #print("Resolution:",Bio.PDB.parse_pdb_header(fn)["resolution"])
-            
-        else:
-            parseme = Bio.PDB.MMCIFParser()
-            #print(can_seq(fn, "cif"))
-
-        stucco = parseme.get_structure(fn[0:fn.index(".")], fn)
-
-        for c in stucco.get_chains():
-            l = 0
-            chainseq = ""
-
-            #residue-level stuff
-            for i in c.get_residues():
-                if Bio.PDB.is_aa(i):
-                    chainseq += Bio.PDB.protein_letters_3to1[i.get_resname()]
-                    l += 1
-                    if not l % 80: chainseq += "\n"
-            if chainseq:
-                chainhead = ">" + c.get_full_id()[0].upper() + ":" + c.get_id() + "\n"
-                fastas += chainhead + chainseq.strip() + "\n"
-            
-    return fastas
-def get_chains():
-    chains = []
-
-    starting_objs = pymol.cmd.get_names("all", False)
-    enabled_objs = pymol.cmd.get_names("all", True)
-
-    for i in enabled_objs:
-        pymol.cmd.split_chains(i)
-
-    ending_objs = pymol.cmd.get_names("all", False)
-
-
-    chains = list(set(starting_objs)^set(ending_objs))
-    for i in chains: pymol.cmd.delete(i)
-
-    for i in enabled_objs: pymol.cmd.enable(i)
-
-    actual_chains = {}
-    for c in chains:
-        try: actual_chains[c[0:-2]].append(c[-1])
-        except KeyError: actual_chains[c[0:-2]] = [c[-1]]
-
-    return actual_chains
+    return 1
 
 def ph(helxdict, color="red", fix=False):
     num = 0
@@ -315,68 +266,20 @@ def ph(helxdict, color="red", fix=False):
                     num += 1
                 num = 0
 
-def tms_test(base="gray", helix="yellow", tms_helix="green"):
-    pymol.cmd.color(base, "enabled")
-    ph(stride(), helix, fix=False)
-    ph(hmmtop(), tms_helix, fix=True)
+def paint_tmss(selection=None, start_hue=0, end_hue=240, expand=0, shade=0.9, saturation=0.7, termini=False, gray=False, offset=0):
 
-def paint_test(selection="sele", gray=0):
-    """
-DESCRIPTION
+    if selection == None: selection = "all"
 
-    "paint_test" colors based on common TMS features
+    enabled = pymol.cmd.get_names("all", True)
 
-ARGUMENTS
+    pymol.cmd.disable("all")
+    pymol.cmd.enable(selection)
 
-    selection = str: Selection to color {default: sele}
-
-NOTES
-
-    paint_test should NOT be used for serious TMS assignment. It is likely useful only for checking very small (~2TMS) structures with modest hydrophilic domains for probable TMSs.
-
-    """
-    if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
-
-    if str2bool(gray): pymol.cmd.color("gray", selection)
-
-    pymol.cmd.color("white", selection + "and ss H and r. LEU+ALA+ILE+VAL+PHE")
-    pymol.cmd.color("blue", selection + " and r. ARG+LYS")
-    pymol.cmd.color("purple", selection + "and ss H and r. TRP+TYR")
-
-def paint_tmss(start_hue=0, end_hue=240, expand=0, shade=0.8, termini=False, gray=False, offset=0):
-    """
-DESCRIPTION
-
-    "paint_tmss" calculates probable TMSs using HMMTOP and paints them sequentially
-
-USAGE
-
-    paint_tmss[ start_hue[, end_hue[, expand[, shade[, termini[, gray]]]]]]
-
-ARGUMENTS
-
-    start_hue = int: First hue in gradient {default: 0}
-
-    end_hue = int: Ending hue in gradient {default: 240}
-
-    expand = int: Number of residues to expand predicted TMSs in each direction {default: 0}
-
-    shade = float: How much to shade each additional chain {default: 1.0}
-
-    termini = bool: Whether to paint first/last TMS according to helix orientation
-
-    gray = bool: Whether to gray out the rest of the structure(s)
-
-    offset = int: How much to shift starting hue  for each additional chain {default: 0}
-
-SEE ALSO
-
-    paint_tmss_orig
-    """
+    for o in pymol.cmd.get_names("objects", False): pymol.cmd.enable(selection + " and " + o)
 
     #run HMMTOP on the sequences
 
-    stuff = hmmtop()
+    stuff = hmmtop(selection)
 
     #make sure arguments are properly typed
 
@@ -384,37 +287,40 @@ SEE ALSO
     end_hue = int(end_hue)
     expand = int(expand)
     shade = float(shade)
+    saturation = float(saturation)
     offset = int(offset)
     shade_now = 0.9 * 100
     objid = 0
 
-    #gray out everything if requested
+    for o in pymol.cmd.get_names("objects", True): 
+        #gray out everything if requested
+        if bool(gray): pymol.cmd.color(hsv2rgb(0, 0, 60), o + " and " + selection)
 
-    if str2bool(gray): pymol.cmd.color("gray")
+        #save each object as a temporary PDB and extract sequence from there
+        #is what an incompetent coder would do, so let's do something better
 
-    #save each object as a temporary PDB and extract sequence from there
+        for c in pymol.cmd.get_chains(o, True): 
 
-    for o in stuff.keys():
-        f = tempfile.NamedTemporaryFile(delete=False)
-        pymol.cmd.save(f.name, o)
-        m = get_fasta_mapping(f.name)
+            v = {"ri":[], "rn":[]}
+            pymol.cmd.iterate(o + " and c. " + c + " and " + selection + " and n. CA", "ri.append(resv); rn.append(resn)", space=v)
+            fa = ">%s_%s\n" % (o, c)
+            for n in v["rn"]: 
+                try: fa += Bio.PDB.protein_letters_3to1[n]
+                except AttributeError: fa += Bio.PDB.to_one_letter_code[n]
+                except KeyError: continue
+            
+            resi2flat = {}
+            flat2resi = {}
+            i = 1
+            for j in v["ri"]:
+                resi2flat[j] = i
+                flat2resi[i] = j
+                i += 1
+            hc = gradient(len(stuff[o][c]), start_hue, end_hue, int(100*saturation), int(100*shade))
 
-        #now begin painting the TMSs
-
-        for c in stuff[o].keys():
-            for i in range(len(stuff[o][c])):
-                hc = (gradient(len(stuff[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), stuff[o][c][i])
-
-                print(m)
-                a = str(int(m[o][c][int(hc[1].start)]) - expand)
-                b = str(int(m[o][c][int(hc[1].end)]) + expand)
-                pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
-                #print([hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b])
-                if termini:
-                    pymol.cmd.color("nitrogen", o + " and c. " + c + " and i. " + str(int(a)-1+1))
-                    pymol.cmd.color("oxygen", o + " and c. " + c + " and i. " + str(int(b)+1-1))
-            shade_now *= shade
-            objid += 1
+            for x in zip(hc, stuff[o][c]):
+                pymol.cmd.color(x[0], "%s and %s and c. %s and i. %s-%s" % (selection, o, c, x[1].start, x[1].end))
+                
 
 #next colorer:
 #accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
@@ -605,4 +511,7 @@ pymol.cmd.extend("pt", paint_tmss)
 pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
 pymol.cmd.extend("tms_paint", paint_test)
 pymol.cmd.extend("hmmtop", hmmtop)
+
+pymol.cmd.extend("xclip", xclip)
+pymol.cmd.extend("pbcopy", pbcopy)
 
