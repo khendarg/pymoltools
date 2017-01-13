@@ -539,7 +539,6 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
 pymol.cmd.extend("paint_tmss", paint_tmss)
 pymol.cmd.extend("pt", paint_tmss)
 pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
-pymol.cmd.extend("tms_paint", paint_test)
 pymol.cmd.extend("hmmtop", hmmtop)
 
 pymol.cmd.extend("xclip", xclip)
