@@ -346,10 +346,12 @@ SEE ALSO
                 resi2flat[j] = i
                 flat2resi[i] = j
                 i += 1
+            print(resi2flat)
+            print(flat2resi)
             hc = gradient(len(stuff[o][c]), start_hue, end_hue, int(100*saturation), int(100*shade))
 
             for x in zip(hc, stuff[o][c]):
-                pymol.cmd.color(x[0], "%s and %s and c. %s and i. %s-%s" % (selection, o, c, x[1].start, x[1].end))
+                pymol.cmd.color(x[0], "%s and %s and c. %s and i. %s-%s" % (selection, o, c, flat2resi[int(x[1].start)], flat2resi[int(x[1].end)]))
                 
 
 #next colorer:
