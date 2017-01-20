@@ -267,7 +267,7 @@ def ph(helxdict, color="red", fix=False):
                     num += 1
                 num = 0
 
-def paint_tmss(selection=None, start_hue=0, end_hue=240, expand=0, shade=0.9, saturation=0.7, termini=False, gray=False, offset=0):
+def paint_tmss(selection=None, gray=1, start_hue=0, end_hue=240, expand=0, shade=0.9, saturation=0.7, termini=False, offset=0):
     """
 DESCRIPTION
 
@@ -346,8 +346,6 @@ SEE ALSO
                 resi2flat[j] = i
                 flat2resi[i] = j
                 i += 1
-            print(resi2flat)
-            print(flat2resi)
             hc = gradient(len(stuff[o][c]), start_hue, end_hue, int(100*saturation), int(100*shade))
 
             for x in zip(hc, stuff[o][c]):
