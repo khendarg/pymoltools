@@ -322,6 +322,8 @@ SEE ALSO
     shade_now = 0.9 * 100
     objid = 0
 
+    if str(gray) == "0": gray = 0
+
     for o in pymol.cmd.get_names("objects", True): 
         #gray out everything if requested
         if bool(gray): pymol.cmd.color(hsv2rgb(0, 0, 60), o + " and " + selection)
@@ -536,6 +538,15 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
         shade_now *= shade
         objid += 1
 
+def draw_axis(start, end, name="cylinder1"):
+	c1 = (0,0,1)
+	c2 = (1,0,0)
+	#fstart = [float(start[0]), float(start[1]), float(start[1])]
+	#fend = [float(end[0]), float(end[1]), float(end[2])]
+	fstart = eval(start)
+	fend = eval(end)
+	pymol.cmd.load_cgo([9.0] + fstart + fend + [2] + list(c1) + list(c2), name)
+
 pymol.cmd.extend("paint_tmss", paint_tmss)
 pymol.cmd.extend("pt", paint_tmss)
 pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
@@ -544,3 +555,4 @@ pymol.cmd.extend("hmmtop", hmmtop)
 pymol.cmd.extend("xclip", xclip)
 pymol.cmd.extend("pbcopy", pbcopy)
 
+pymol.cmd.extend("draw_axis", draw_axis)
