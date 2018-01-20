@@ -25,7 +25,7 @@ ARGUMENTS
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
     pymol.cmd.hide("everything", "(all) beyond " + str(cutoff) + " of " + selection)
 
-def chview(view="cartoon", selection="sele"):
+def chview(view="cartoon", selection="sele", hidelig=False):
     """
 DESCRIPTION
 
@@ -42,6 +42,8 @@ ARGUMENTS
     selection = string: selection to switch views for {default: sele}
     """
     if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
+    if not hidelig: selection += ' and not het'
+    print('test')
     pymol.cmd.hide("everything", selection)
     pymol.cmd.show(view, selection)
 
