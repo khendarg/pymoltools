@@ -47,5 +47,19 @@ ARGUMENTS
     pymol.cmd.hide("everything", selection)
     pymol.cmd.show(view, selection)
 
+def slab(thickness=10., selection='all'):
+	"""
+DESCRIPTION
+
+    Change slab size. Useful for viewing pores
+	"""
+    try: thickness = float(thickness)
+    except ValueError: 
+        print("Could not parse %s as a float" % thickness)
+        return
+
+    pymol.cmd.clip(mode="slab", distance=thickness, selection=selection)
+
 pymol.cmd.extend("focus", focus)
 pymol.cmd.extend("cv", chview)
+pymol.cmd.extend("cl", slab)

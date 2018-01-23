@@ -538,6 +538,19 @@ parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
         shade_now *= shade
         objid += 1
 
+def draw_line(start, end, name="line1"):
+	c1 = [1,1,1]
+	c2 = [1,1,1]
+	start = eval(start)
+	end = eval(end)
+	pymol.cmd.load_cgo([9.0] + start + end + [0.02] + [1,1,1,1,1,1], name)
+
+def draw_axes(extend=10, name="axes"):
+	extend = float(extend)
+	pymol.cmd.load_cgo([9.0] + [0,0,0] + [extend,0,0] + [0.3] + [1,0,0] + [1,0,0], name)
+	pymol.cmd.load_cgo([9.0] + [0,0,0] + [0,extend,0] + [0.3] + [0,1,0] + [0,1,0], name)
+	pymol.cmd.load_cgo([9.0] + [0,0,0] + [0,0,extend] + [0.3] + [0,0,1] + [0,0,1], name)
+
 def draw_axis(start, end, name="cylinder1"):
 	c1 = (0,0,1)
 	c2 = (1,0,0)
@@ -546,6 +559,42 @@ def draw_axis(start, end, name="cylinder1"):
 	fstart = eval(start)
 	fend = eval(end)
 	pymol.cmd.load_cgo([9.0] + fstart + fend + [2] + list(c1) + list(c2), name)
+
+def draw_point(coord, rad=1.0, name="points1"):
+	c = (1,0,0)
+	rad = float(rad)
+	fstart = eval(coord)
+	fend = [fstart[0] + 1, fstart[1] + 1, fstart[2] + 1]
+	#pymol.cmd.load_cgo([7.0] + fstart + [rad] + [1] + list(c) + list(c), name)
+	pymol.cmd.load_cgo([7.0] + fstart + [rad] + [1], name)
+
+def draw_plane(point, normal, name="plane1", color="[1,0,0]", radius=20):
+	def norm(x):
+		s = 0
+		for i in x: s += i**2
+		return s**.5
+	def mult(c, x):
+		y = []	
+		for i in x: y.append(c*i)
+		return y
+	def add(x, y):
+		z = []
+		for i in zip(x, y):
+			z.append(i[0] + i[1])
+		return z
+	radius = float(radius)
+	point = eval(point)
+	normal = eval(normal)
+	color1 = eval(color)
+	import random
+	x = list(range(3))
+	random.shuffle(x)
+	color2 = []
+	for i in x: color2.append(color1[i])
+	#endpoint = add(point, mult(0.1/norm(normal), normal))
+	endpoint = add(point, normal)
+
+	pymol.cmd.load_cgo([25.0, 0.5, 9.0] + point + endpoint + [radius] + color1 + color1, name)
 
 pymol.cmd.extend("paint_tmss", paint_tmss)
 pymol.cmd.extend("pt", paint_tmss)
@@ -556,3 +605,7 @@ pymol.cmd.extend("xclip", xclip)
 pymol.cmd.extend("pbcopy", pbcopy)
 
 pymol.cmd.extend("draw_axis", draw_axis)
+pymol.cmd.extend("draw_axes", draw_axes)
+pymol.cmd.extend("draw_line", draw_line)
+pymol.cmd.extend("draw_point", draw_point)
+pymol.cmd.extend("draw_plane", draw_plane)
