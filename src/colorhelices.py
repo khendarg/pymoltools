@@ -268,9 +268,12 @@ def vegalike(i, maxi, gamma=0.0):
 
 	def _desaturate(rgbtuple, x):
 		mean = sum(rgbtuple)/3.
-		if x <= 0: return rgbtuple
-		elif x >= 1: return tuple([int(mean) for i in range(3)])
-		else: return tuple([int(rgbtuple[i]*(1-x) + mean*(x)) for i in range(3)])
+		#if x <= 0: return rgbtuple
+		#elif x >= 1: return tuple([int(mean) for i in range(3)])
+		#else: return tuple([int(rgbtuple[i]*(1-x) + mean*(x)) for i in range(3)])
+
+		#this should allow for increasing saturation (use negative x)
+		return tuple([int(rgbtuple[i]*(1-x) + mean*(x)) for i in range(3)])
 		
 	rgbtuple = _desaturate(rgbtuple, gamma)
 
@@ -328,10 +331,11 @@ def paint_pfam(selection=None, gray=True):
 					domshort = sl[0]
 					domacc = sl[1]
 					domaccshort = sl[1].split('.')[0]
+					domexpect = float(sl[6])
 					envspan = [int(x) for x in sl[19:21]]
 					domsel = subsubselection + ' and i. {}-{}'.format(*envspan)
 
-					domain = {'acc':domacc, 'short':domshort, 'accshort':domaccshort, 'span':envspan, 'selection':domsel}
+					domain = {'acc':domacc, 'short':domshort, 'accshort':domaccshort, 'span':envspan, 'selection':domsel, 'expect':domexpect}
 
 					try: domains[domaccshort].append(domain)
 					except KeyError: domains[domaccshort] = [domain]
@@ -351,7 +355,7 @@ def paint_pfam(selection=None, gray=True):
 				#def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
 				
 				color = spectrum1(x=x, sstart=saturation, sstop=saturation, vstart=value, vstop=value)
-				color = vegalike(i, len(clans), gamma=j/8.)
+				color = vegalike(i, len(clans), gamma=(3-j)/3.)
 
 				pymol.cmd.color(color, domain['selection'])
 
@@ -364,7 +368,7 @@ def paint_pfam(selection=None, gray=True):
 			print('================================')
 		clselector = ''
 		for domain in clans[clanname]:
-			print('{}: {} ({})'.format(domain['acc'], domain['short'], domain['selection']))
+			print('{} ({:0.0e}): {} ({})'.format(domain['acc'], domain['expect'], domain['short'], domain['selection']))
 			clselector += '({}) '.format(domain['selection'])
 			
 		if clanname: pymol.cmd.select(clanname, clselector)
