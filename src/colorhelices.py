@@ -230,7 +230,56 @@ def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
 	)
 	return '0x%02.x%02.x%02.x' % rgb
 
-def paint_pfam(selection=None, gray=False):
+def vegalike(i, maxi, gamma=0.0):
+	if maxi <= 10:
+		m = i % 10
+		if m == 0: rgbtuple = (0x1f, 0x77, 0xb4)
+		elif m == 1: rgbtuple = (0xff, 0x7f, 0x0e)
+		elif m == 2: rgbtuple = (0x2c, 0xa0, 0x2c)
+		elif m == 3: rgbtuple = (0xd6, 0x27, 0x28)
+		elif m == 4: rgbtuple = (0x94, 0x67, 0xbd)
+		elif m == 5: rgbtuple = (0x8c, 0x56, 0x4b)
+		elif m == 6: rgbtuple = (0xe3, 0x77, 0xc2)
+		elif m == 7: rgbtuple = (0x7f, 0x7f, 0x7f)
+		elif m == 8: rgbtuple = (0xbc, 0xbd, 0x22)
+		elif m == 9: rgbtuple = (0x17, 0xbe, 0xcf)
+	elif maxi <= 20:
+		m = i % 20
+		if m == 0: rgbtuple = (0x1f, 0x77, 0xb4)
+		elif m == 1: rgbtuple = (0xae, 0xc7, 0xe8)
+		elif m == 2: rgbtuple = (0xff, 0x7f, 0x0e)
+		elif m == 3: rgbtuple = (0xff, 0xbb, 0x78)
+		elif m == 4: rgbtuple = (0x2c, 0xa0, 0x2c)
+		elif m == 5: rgbtuple = (0x98, 0xdf, 0x8a)
+		elif m == 6: rgbtuple = (0xd6, 0x27, 0x28)
+		elif m == 7: rgbtuple = (0xff, 0x98, 0x96)
+		elif m == 8: rgbtuple = (0x94, 0x67, 0xbd)
+		elif m == 9: rgbtuple = (0xc5, 0xb0, 0xd5)
+		elif m == 10: rgbtuple = (0x8c, 0x56, 0x4b)
+		elif m == 11: rgbtuple = (0xc4, 0x9c, 0x94)
+		elif m == 12: rgbtuple = (0xe3, 0x77, 0xc2)
+		elif m == 13: rgbtuple = (0xf7, 0xb6, 0xd2)
+		elif m == 14: rgbtuple = (0x7f, 0x7f, 0x7f)
+		elif m == 15: rgbtuple = (0xc7, 0xc7, 0xc7)
+		elif m == 16: rgbtuple = (0xbc, 0xbd, 0x22)
+		elif m == 17: rgbtuple = (0xdb, 0xdb, 0x8d)
+		elif m == 18: rgbtuple = (0x17, 0xbe, 0xcf)
+		elif m == 19: rgbtuple = (0x9e, 0xda, 0xe5)
+
+	def _desaturate(rgbtuple, x):
+		mean = sum(rgbtuple)/3.
+		if x <= 0: return rgbtuple
+		elif x >= 1: return tuple([int(mean) for i in range(3)])
+		else: return tuple([int(rgbtuple[i]*(1-x) + mean*(x)) for i in range(3)])
+		
+	rgbtuple = _desaturate(rgbtuple, gamma)
+
+	#if gamma != 1.0:
+	#	rgbtuple = tuple([int(0xff * (x/0xff)**gamma) for x in rgbtuple])
+
+	return '0x%02.x%02.x%02.x' % rgbtuple
+
+def paint_pfam(selection=None, gray=True):
 	gray = _str2bool(gray)
 	selection = _resolve_selection(selection)
 
@@ -244,6 +293,7 @@ def paint_pfam(selection=None, gray=False):
 
 	domains = {}
 	clans = {}
+
 	for objname in pymol.cmd.get_names('objects', True):
 		subselection = selection + ' and ' + objname
 		for chain in pymol.cmd.get_chains(subselection):
@@ -256,8 +306,14 @@ def paint_pfam(selection=None, gray=False):
 			fasta = '>sequence\n' + numbseq.get_seq()
 
 			if 'PFAMDB' not in os.environ: raise KeyError('Environment variable $PFAMDB unset')
+
+			raw_tf = tempfile.NamedTemporaryFile()
+			pymol.cmd.save(raw_tf.name, selection=subsubselection, format='fasta')
+			raw_tf.flush()
+			raw_tf.seek(0)
+
 			tf = tempfile.NamedTemporaryFile()
-			tf.write(fasta)
+			for l in raw_tf: tf.write(l.replace('?', 'X'))
 			tf.flush()
 
 			p = subprocess.Popen(['hmmscan', '--cpu', '4', '--noali', '--cut_ga', '-o', '/dev/null', '--domtblout', '/dev/stdout', os.environ['PFAMDB'], tf.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -288,15 +344,45 @@ def paint_pfam(selection=None, gray=False):
 		for i, clanacc in enumerate(sorted(clans)):
 			try: x = i/(len(clans)-1)
 			except ZeroDivisionError: x = 0.5
-			for domain in clans[clanacc]:
+			for j, domain in enumerate(clans[clanacc]):
 				
 				saturation = random.randint(5, 8)*10
 				value = random.randint(4, 9)*10
 				#def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
 				
 				color = spectrum1(x=x, sstart=saturation, sstop=saturation, vstart=value, vstop=value)
+				color = vegalike(i, len(clans), gamma=j/8.)
 
 				pymol.cmd.color(color, domain['selection'])
+
+	for clanname in clans:
+		if clanname: 
+			print('List of domains in clan {}:'.format(clanname))
+			print('===============================')
+		else: 
+			print('List of domains in clan Lowborn:')
+			print('================================')
+		clselector = ''
+		for domain in clans[clanname]:
+			print('{}: {} ({})'.format(domain['acc'], domain['short'], domain['selection']))
+			clselector += '({}) '.format(domain['selection'])
+			
+		if clanname: pymol.cmd.select(clanname, clselector)
+		else: pymol.cmd.select('Clanless', clselector)
+		for domain in clans[clanname]:
+			pymol.cmd.select(domain['short'], domain['selection'])
+		print()
+		
+	#for domname in domains:
+	#	selector = ''
+	#	for domain in domains[domname]:
+	#		selector += '({}) '.format(domain['selection'])
+
+	#		print(
+
+	#	pymol.cmd.select(domname, selector)
+	pymol.cmd.deselect()
+		
 
 
 
@@ -340,13 +426,16 @@ def chview(view='cartoon', selection=None, hidelig=False):
 
 def _str2bool(s):
 	if not s: return False
-	elif s.lower().startswith('f'): return False
-	elif s.lower().startswith('n'): return False
-	elif s.lower().startswith('0'): return False
+	elif type(s) is int: return bool(s)
+	elif type(s) is float: return bool(s)
+	elif type(s) is str:
+		if s.lower().startswith('f'): return False
+		elif s.lower().startswith('n'): return False
+		elif s.lower().startswith('0'): return False
 
-	elif s.lower().startswith('t'): return True
-	elif s.lower().startswith('y'): return True
-	elif s.lower().startswith('1'): return True
+		elif s.lower().startswith('t'): return True
+		elif s.lower().startswith('y'): return True
+		elif s.lower().startswith('1'): return True
 	else: return bool(s)
 
 pymol.cmd.extend('pbcopy', pbcopy)
