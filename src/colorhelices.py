@@ -1,611 +1,361 @@
-#!/usr/bin/env python2
-"""
-Copyleft 2017 by Kevin Hendargo, all rights reversed
-"""
-from __future__ import print_function
+'''
+Copyleft 2019 by Kevin Hendargo, all rights reversed
+'''
+from __future__ import division, print_function
 
-import pymol, os, re, Bio.PDB, subprocess, math, sys, tempfile
+import pymol
+import tempfile
+import subprocess
+import re
+import os
+import gzip
+import random
 
-def process_aa(threeletter):
-    y = ""
-    try: y = Bio.PDB.protein_letters_3to1[threeletter]
-    except AttributeError: y = Bio.PDB.to_one_letter_code[threeletter]
-    except KeyError: y = ""
-    return y
+import Bio.PDB
+try: CODE = Bio.PDB.protein_letters_3to1
+except AttributeError: CODE = Bio.PDB.to_one_letter_code
 
-def sele2fa(selection="sele"):
-    fa = ">titleneeded\n"
-    space = {"seq":[], "code":process_aa}
-    pymol.cmd.iterate("sele and n. CA", "seq.append(code(resn))", space=space)
-    for r in space["seq"]: fa += r
-    return fa
+class NumberedSequence(object):
+	def __init__(self, iterable):
+		self.iterable = iterable
+		self.validate()
 
-def xclip(selection="sele"): 
-    os.system("echo '%s' | xclip" % sele2fa(selection))
+	def validate(self):
+		for i, pair in enumerate(self.iterable):
+			if not ((len(pair) == 2) and (type(pair[1]) is int)):
+				raise ValueError('Element {} is invalid: {}'.format(i, pair))
 
-def pbcopy(selection="sele"): os.system("echo '%s' | pbcopy" % sele2fa(selection))
+	def get_seq(self): return ''.join([pair[0] for pair in self])
 
-def dictcat(x, indentcount=0):
-    dlm = "    "
-    if type(x) is dict:
-        for i in sorted(x.keys()):
-            if type(x[i]) is dict: 
-                print(dlm*(indentcount+1) + str(i))
-                dictcat(x[i], indentcount + 1)
-            else:
-                print(dlm*indentcount + str(i))
-                print(dlm*(indentcount+1) + str(x[i]))
-    else: 
-        print(dlm*indentcount + str(i))
-        print(dlm*(indentcount+1) + str(x[i]))
+	def get_contigs(self):
+		rawcontigs = []
+		lasti = None
+		for pair in self:
+			if lasti is None: rawcontigs.append([pair])
+			elif pair[1] == (lasti + 1): rawconfigs[-1].append(pair)
+			else: rawcontigs.append([pair])
+			lasti = pair[1]
+		return [NumberedSequence(contig) for contig in rawcontigs]
 
-def hsv2rgb(h, s, v):
-    """
+	def __getitem__(self, index):
+		if type(index) is int:
+			for pair in self:
+				if pair[1] == index: return NumberedSequence([self.iterable[index]])
+		else:
+			start = self.iterable[0][1] if index.start is None else index.start
+			stop = self.iterable[-1][1] if index.stop is None else index.stop
+			requested = range(start, stop+step, step)
+			substring = []
+			for pair in self:
+				if pair[1] in requested: substring.append(pair)
+			return NumberedSequence(substring)
+	def __len__(self): return len(self.iterable)
+
+	def find_closest(self, string, threshold=0.8):
+		if len(string) > len(self): raise NotImplementedError
+		else:
+			idents = {}
+			maxident = 0
+			for i in range(len(self) - len(string) + 1):
+				idents[i] = 0
+				for pair, c2 in zip(self.iterable[i:i+len(string)], string):
+					if pair[0] == c2: idents[i] += 1
+				maxident = max(maxident, idents[i])
+				if maxident == len(string): return NumberedSequence(self.iterable[i:i+len(string)])
+			for i in idents:
+				if idents[i] == maxident: return NumberedSequence(self.iterable[i:i+len(string)])
+
+	def get_range(self):
+		start, stop = None, None
+		for pair in self:
+			if start is None: start = pair[1]
+			stop = pair[1]
+		return start, stop
+
+	def __iter__(self): return iter(self.iterable)
+	def __repr__(self):
+		start, stop = self.get_range()
+		return '<NumberedSequence range=({}, {}) seq="{}>'.format(start, stop, self.get_seq())
+
+	@staticmethod
+	def from_pdb(fn, chain):
+		sequence = []
+		with open(fn) as f:
+			for l in f:
+				if l.startswith('ATOM') or l.startswith('HETATM'):
+					if 'CA' in l:
+						if l[21] != chain: continue
+						try: resn = CODE[l[17:20]]
+						except KeyError: continue
+						try: resi = int(l[22:26])
+						except ValueError: print(l)
+						sequence.append((resn, resi))
+		return NumberedSequence(sequence)
+
+def _resolve_selection(selection=None):
+	if selection is None:
+		if 'sele' in pymol.cmd.get_names('all', True): selection = 'sele'
+		else: selection = 'enabled'
+	else: pass
+
+	return selection
+
+def _sele2fa(selection=None):
+	tf = tempfile.NamedTemporaryFile()
+	pymol.cmd.save(tf.name, selection=_resolve_selection(selection), format='fasta')
+	tf.flush()
+	tf.seek(0)
+	return tf.read().decode('utf-8')
+
+def _sele2seqdict(selection=None):
+	tf = tempfile.NamedTemporaryFile()
+	pymol.cmd.save(tf.name, selection=_resolve_selection(selection), format='pdb')
+	tf.flush()
+	tf.seek(0)
+	seqdict = {}
+	for l in tf: 	
+		if l.startswith('ATOM') or (l.startswith('HETATM') and 'MSE' in l): 
+			if l[13:15] != 'CA': continue
+			resn = CODE[l[17:20]]
+			resi = int(l[22:26])
+			seqdict[resi] = resn
+	return seqdict
+
+def _sele2numbseq(selection=None):
+	tf = tempfile.NamedTemporaryFile()
+	selection = _resolve_selection(selection)
+	pymol.cmd.save(tf.name, selection=selection, format='pdb')
+	numbseqs = {}
+	for chain in pymol.cmd.get_chains(selection):
+		numbseqs[chain] = NumberedSequence.from_pdb(tf.name, chain=chain)
+	return numbseqs
+
+def pbcopy(selection=None): 
+	'''
 DESCRIPTION
 
-    Converts HSV tuples to RGB string representations
-    """
-    hsv = (float(h), float(s), float(v))
-    chroma = hsv[2] * hsv[1] / 100
-    hueimage = hsv[0]/60
-    x = chroma * (1 - abs(hueimage % 2 - 1))
-    if 0 <= hueimage and hueimage < 1: rgbtuple = (chroma, x, 0)
-    elif 1 <= hueimage and hueimage < 2: rgbtuple = (x, chroma, 0)
-    elif 2 <= hueimage and hueimage < 3: rgbtuple = (0, chroma, x)
-    elif 3 <= hueimage and hueimage < 4: rgbtuple = (0, x, chroma)
-    elif 4 <= hueimage and hueimage < 5: rgbtuple = (x, 0, chroma)
-    elif 5 <= hueimage and hueimage < 6: rgbtuple = (chroma, 0, x)
-    else: rgbtuple = (0,0,0)
-    m = hsv[2] - chroma
-    rgb = (int((rgbtuple[0] + m)*2.555), int((rgbtuple[1] + m)*2.555), int((rgbtuple[2] + m)*2.555))
-
-    return "0x%02.x%02.x%02.x" % rgb 
-
-def gradient(n, hue_start=0, hue_end=240, s=90, v=90):
-    """
-DESCRIPTION
-
-    Returns a list of RGB hexes for a continuous hue gradient from a starting hue to an ending hue with constant saturation and value
-    """
-    n = int(n) - 1
-    colors = []
-    if n:
-        for h in range(hue_start, hue_end + 1, int(math.ceil((hue_end - hue_start)/n))):
-            colors.append(hsv2rgb(h, s, v))
-        return colors
-    else: 
-        return [hsv2rgb((hue_start + hue_end)/2.0, s, v)]
-
-def str2bool(s):
-    try:
-        if int(s): return True
-        else: return False
-    except ValueError:
-        if "n" and "f" in s: return False
-        else: return True
-
-class Helix:
-    def __init__(self, start, end, chain="A"):
-        self.start = start
-        self.end = end
-        self.color = "0xff0000"
-        self.chain = chain
-    def __str__(self):
-        return self.start + "-" + self.end
-
-def stride(selection="sele"):
-    """
-DESCRIPTION
-
-    Run Stride on a selection
+	pbcopy copies sequence data to the Mac clipboard
 
 USAGE
 
-    stride [selection]
+	pbcopy [selection]
 
 ARGUMENTS
 
-    selection = string: selection of interest {default: sele}
-    """
-    #boilerplate for detecting whether a selection (usually sele) is enabled
-    #runs stride on everything if no appropriate selection is available
-
-    if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
-
-    #save state to avoid cluttering the user's workspace
-
-    starting_names = set(pymol.cmd.get_names("all"))
-    enabled_names = pymol.cmd.get_names("all", True)
-
-    for o in enabled_names: pymol.cmd.split_chains(o)
-
-    chains = {}
-
-    #create a nice, hierarchical dict with all the chains...
-
-    for c in pymol.cmd.get_names("all", True):
-        try: chains[c[0:-2]][c[-1]] = []
-        except KeyError: chains[c[0:-2]] = {c[-1]:[]}
-
-    #...and iterate over it in an orderly fashion
-
-    for o in sorted(chains.keys()):
-        for c in sorted(chains[o].keys()): 
-
-            #write a temporary pdb file with the coordinates of the current chain
-
-            f = tempfile.NamedTemporaryFile(delete=False)
-            pymol.cmd.save(f.name, o + " and c. " + c)
-
-            #run stride on the resulting pdb file and remove it
-
-            struck = subprocess.check_output(["stride", f.name])
-            f.delete()
-
-            #assign more helices based on stride's assignments
-            #TODO: check if other ss (even no ss) should be reassigned as well
-
-            for l in re.split("\n", struck): 
-                if "LOC" and "Helix" in l:
-                    h = Helix(l[22:27].strip(), l[39:45].strip(), l[28])
-                    try: chains[o][c].append(h)
-                    except KeyError: chains[o][c] = [h]
-                    #pymol.cmd.color("red", o + " and c. " + c + " and i. " + l[22:27].strip() + "-" + l[39:45].strip())
-
-    #restore state
-
-    ending_names = set(pymol.cmd.get_names("all"))
-
-    for i in ending_names^starting_names: pymol.cmd.delete(i)
-    for i in enabled_names: pymol.cmd.enable(i)
-
-    #return the hierarchical dict containing chains and now assigned helices
-
-    return chains
-
-def hmmtop(selection=None):
-    """
-DESCRIPTION
-
-    hmmtop runs hmmtop on loaded sequences
-
-NOTES
-
-    Many if not most loaded sequences will be incomplete relative to gene product sequences. Use with extreme caution and monitor sodium intake.
-    """
-    #this turns out to be unexpected behavior
-    #if selection not in pymol.cmd.get_names("all", True): selection = "(all)"
-    if selection == None: selection = "(all)"
-
-    enabled = pymol.cmd.get_names("all", True)
-
-    pymol.cmd.disable("all")
-    pymol.cmd.enable(selection)
-
-    helices = {}
-
-    for o in pymol.cmd.get_names("objects", True):
-        
-        for c in pymol.cmd.get_chains(selection + " and " + o):
-            fasta = ">%s_%s\n" % (o, c)
-            space = {"code":process_aa, "seq":[]}
-            pymol.cmd.iterate("%s and %s and c. %s and n. CA" % (selection, o, c), "seq.append(resn)", space=space)
-            for r in space["seq"]: fasta += process_aa(r)
-            
-            p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            tmss, stderr = p.communicate(fasta)
-
-            tmss = tmss.split()
-
-            try: helices[o][c] = []
-            except KeyError: helices[o] = {c:[]}
-            for i in range(5, len(tmss)-1, 2):
-                helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
-
-    pymol.cmd.disable("all")
-    for x in enabled: pymol.cmd.enable(x)
-
-    return helices
-    
-def get_helices(coordfile):
-
-    helices = {}
-    if "pdb" in coordfile:
-        fh = open(coordfile)
-        for l in fh:
-            if "HELIX" in l[0:6]:
-                #helices.append(Helix(l[21:25].strip(), l[33:37].strip(), l[19]))
-                try: helices[l[19]].append(Helix(l[21:25].strip(), l[33:37].strip(), l[19]))
-                except KeyError: helices[l[19]] = [Helix(l[21:25].strip(), l[33:37].strip(), l[19])]
-    else:
-        #CIF
-        ssdict = Bio.PDB.MMCIF2Dict.MMCIF2Dict(coordfile)
-        #print(ssdict["_struct_conf"])
-        sstype = ssdict["_struct_conf.conf_type_id"]
-        sschain = ssdict["_struct_conf.beg_auth_asym_id"]
-        ssstart = ssdict["_struct_conf.beg_auth_seq_id"]
-        ssend = ssdict["_struct_conf.end_auth_seq_id"]
-        all_ss = zip(sstype, sschain, ssstart, ssend)
-        for ss in all_ss:
-            if "HELX" in ss[0]:
-                try: helices[ss[1]].append(Helix(ss[2], ss[3], ss[1]))
-                except KeyError: helices[ss[1]] = [Helix(ss[2], ss[3], ss[1])]
-    return helices
-
-def get_renumber(selection):
-    if selection == None: selection = "(all)"
-
-    pymol.cmd.disable("all")
-    pymol.cmd.enable(selection)
-
-    for o in pymol.cmd.get_names("objects", True): pass
-
-    return 1
-
-def ph(helxdict, color="red", fix=False):
-    num = 0
-    for o in helxdict.keys():
-        if fix:
-            f = tempfile.NamedTemporaryFile(delete=False)
-            pymol.cmd.save(f.name, o)
-            m = get_fasta_mapping(f.name)
-            f.delete()
-            for c in helxdict[o].keys():
-                for h in helxdict[o][c]:
-                    a = str(m[o][c][int(h.start)])
-                    b = str(m[o][c][int(h.end)])
-                    pymol.cmd.color(color, o + " and c. " + c + " and i. " + a + "-" + b)
-                    num += 1
-                num = 0
-        else:
-            for c in helxdict[o].keys():
-                for h in helxdict[o][c]:
-                    #pymol.cmd.color("red", o + " and c. " + c + " and i. " + str(h))
-                    a = str(h.start)
-                    b = str(h.end)
-                    pymol.cmd.color(color, o + " and c. " + c + " and i. " + a + "-" + b)
-                    num += 1
-                num = 0
-
-def paint_tmss(selection=None, gray=1, start_hue=0, end_hue=240, expand=0, shade=0.9, saturation=0.7, termini=False, offset=0):
-    """
-DESCRIPTION
-
-    "paint_tmss" calculates probable TMSs using HMMTOP and paints them sequentially
-
-USAGE
-
-    paint_tmss[ start_hue[, end_hue[, expand[, shade[, termini[, gray]]]]]]
-
-ARGUMENTS
-
-    start_hue = int: First hue in gradient {default: 0}
-
-    end_hue = int: Ending hue in gradient {default: 240}
-
-    expand = int: Number of residues to expand predicted TMSs in each direction {default: 0}
-
-    shade = float: How much to shade each additional chain {default: 1.0}
-
-    termini = bool: Whether to paint first/last TMS according to helix orientation
-
-    gray = bool: Whether to gray out the rest of the structure(s)
-
-    offset = int: How much to shift starting hue  for each additional chain {default: 0}
+	selection = str: Object or selection to copy {default:enabled or sele}
 
 SEE ALSO
 
-    paint_tmss_orig
-    """
+	xclip
+	'''
+	s = _sele2fa(selection)
+	p = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+	p.communicate(input=s.encode('utf-8'))
 
-    if selection == None: selection = "all"
-
-    enabled = pymol.cmd.get_names("all", True)
-
-    pymol.cmd.disable("all")
-    pymol.cmd.enable(selection)
-
-    for o in pymol.cmd.get_names("objects", False): pymol.cmd.enable(selection + " and " + o)
-
-    #run HMMTOP on the sequences
-
-    stuff = hmmtop(selection)
-
-    #make sure arguments are properly typed
-
-    start_hue = int(start_hue)
-    end_hue = int(end_hue)
-    expand = int(expand)
-    shade = float(shade)
-    saturation = float(saturation)
-    offset = int(offset)
-    shade_now = 0.9 * 100
-    objid = 0
-
-    if str(gray) == "0": gray = 0
-
-    for o in pymol.cmd.get_names("objects", True): 
-        #gray out everything if requested
-        if bool(gray): pymol.cmd.color(hsv2rgb(0, 0, 60), o + " and " + selection)
-
-        #save each object as a temporary PDB and extract sequence from there
-        #is what an incompetent coder would do, so let's do something better
-
-        for c in pymol.cmd.get_chains(o, True): 
-
-            v = {"ri":[], "rn":[]}
-            pymol.cmd.iterate(o + " and c. " + c + " and " + selection + " and n. CA", "ri.append(resv); rn.append(resn)", space=v)
-            fa = ">%s_%s\n" % (o, c)
-            for n in v["rn"]: 
-                try: fa += Bio.PDB.protein_letters_3to1[n]
-                except AttributeError: fa += Bio.PDB.to_one_letter_code[n]
-                except KeyError: continue
-            
-            resi2flat = {}
-            flat2resi = {}
-            i = 1
-            for j in v["ri"]:
-                resi2flat[j] = i
-                flat2resi[i] = j
-                i += 1
-            hc = gradient(len(stuff[o][c]), start_hue, end_hue, int(100*saturation), int(100*shade))
-
-            for x in zip(hc, stuff[o][c]):
-                pymol.cmd.color(x[0], "%s and %s and c. %s and i. %s-%s" % (selection, o, c, flat2resi[int(x[1].start)], flat2resi[int(x[1].end)]))
-                
-
-#next colorer:
-#accepts (id1, id2, (helixin1, helixin2), (helixin1, helixin2), (helixin1, helixin2))
-
-def paint_tmss_orig(filename, selection=None, start_hue=0, end_hue=240, expand=0, shade=0.99, termini=False, gray=False, offset=0):
-    """
+def xclip(selection=None): 
+	'''
 DESCRIPTION
 
-    paint_tmss_orig colors TMSs based on associated UniProt sequences
+	xclip copies sequence data to the X11 clipboard
 
 USAGE
 
-    paint_tmss_orig filename[, selection[, start_hue[, end_hue[, expand[, shade[, termini[, gray[, offset]]]]]]]
+	xclip [selection]
 
 ARGUMENTS
 
-    filename = str: File to check for associated UniProt accessions
-
-    selection = str: Object or selection to color (required if ambiguous)
-
-    start_hue = int: First hue in gradient {default:0}
-
-    end_hue = int: Last hue in gradient {default:240}
-
-    expand = int: Number of residues to expand predicted TMSs in each direction {default:0}
-
-    shade = float: How much to shade each successive chain colored {default:0.9}
-
-    termini = bool: Whether to paint first/last TMS residues to display helix orientation
-
-    gray = bool: Whether to gray out the rest of the structure(s)
-
-    offset = int: How much to shift the starting hue for each successive chain colored {default:0}
+	selection = str: Object or selection to copy {default:enabled or sele}
 
 SEE ALSO
 
-    paint_tmss
-    """
+	pbcopy
+	'''
+	s = _sele2fa(selection)
+	p = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+	p.communicate(input=s.encode('utf-8'))
 
-    start_hue = int(start_hue)
-    end_hue = int(end_hue)
-    expand = int(expand)
-    shade = float(shade)
-    offset = int(offset)
-    shade_now = 0.9 * 100
-    objid = 0
+def _in_spans(n, spans):
+	for i, span in enumerate(spans):
+		if span[0] <= n <= span[1]: return i
+	return None
 
-    #attempt to detect targets slightly intelligently
-    if not selection:
-        #if more than one selection/object exists and selection is unspecified, exit
-        if len(pymol.cmd.get_names("all", True)) == 1: selection = pymol.cmd.get_names("all", True)[0]
-        else:
-            print("Unspecified selection, exiting")
-            sys.exit(1)
+def select_tmss(selection=None):
+	selection = _resolve_selection(selection)
+	for objname in pymol.cmd.get_names('objects', True):
+		subselection = selection + ' and ' + objname
+		for chain in pymol.cmd.get_chains(subselection):
+			subsubselection = subselection + ' and c. ' + chain	
+			seqdict = _sele2seqdict(subsubselection)
+			fasta = '>sequence\n'
+			seq = ''.join([seqdict[i] for i in sorted(seqdict)])
+			fasta += seq
+			p = subprocess.Popen(['hmmtop', '-if=--', '-of=--', '-sf=FAS', '-pi=spred', '-is=pseudo'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+			out, err = p.communicate(input=fasta.encode('utf-8'))
+			indices = re.findall('(?:[0-9] *)+$', out)[0].split()[1:]
+			if not indices: continue
+			indices = [int(x) for x in indices]
+			spans = []
+			for i in range(0, len(indices), 2):
+				spans.append((indices[i], indices[i+1]))
 
-    #now gray out anything if gray is set
-    if str2bool(gray): pymol.cmd.color("gray", selection)
+			raw2resi = {}
+			resis = sorted(seqdict)
+			for i in range(len(seq)):
+				raw2resi[i] = resis[i]
+			for i, span in enumerate(spans):
+				pymol.cmd.select('{}_{}_TM{}'.format(objname, chain, i+1), '{} and c. {} and i. {}-{}'.format(objname, chain, span[0], span[1]))
+	pymol.cmd.deselect()
+	#print(dir(pymol.cmd))
 
-    seqs = {}
+def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
+	hue = hstart + x * (hstop - hstart)
+	saturation = sstart + x * (sstop - sstart)
+	value = vstart + x * (vstop - vstart)
 
-    #check for file type
-    #TODO: read last line instead of filename
+	chroma = value * saturation / 100
+	hueimage = hue/60
+	n = chroma * (1 - abs(hueimage % 2 - 1))
+	if 0 <= hueimage < 1: rgbtuple = (chroma, n, 0)
+	elif 1 <= hueimage < 2: rgbtuple = (n, chroma, 0)
+	elif 2 <= hueimage < 3: rgbtuple = (0, chroma, n)
+	elif 3 <= hueimage < 4: rgbtuple = (0, n, chroma)
+	elif 4 <= hueimage < 5: rgbtuple = (n, 0, chroma)
+	elif 5 <= hueimage < 6: rgbtuple = (chroma, 0, n)
+	else: rgbtuple = (0, 0, 0)
+	m = value - chroma
+	rgb = (
+		int((rgbtuple[0] + m)*2.555),
+		int((rgbtuple[1] + m)*2.555),
+		int((rgbtuple[2] + m)*2.555)
+	)
+	return '0x%02.x%02.x%02.x' % rgb
 
-    if "pdb" in filename: 
+def paint_pfam(selection=None, gray=False):
+	gray = _str2bool(gray)
+	selection = _resolve_selection(selection)
 
-        #if legacy PDB, download UNP (UniProt) FASTAs to memory
+	dom2clan = {}
+	if 'PFAMCLANSDB' not in os.environ: raise KeyError('Environment variable $PFAMCLANSDB unset')
+	with gzip.GzipFile(filename=os.environ['PFAMCLANSDB']) as f:
+		for l in f:
+			if l.strip():
+				sl = l.split('\t')
+				dom2clan[sl[0]] = sl[1]
 
-        f = open(filename)
-        ids = {}
+	domains = {}
+	clans = {}
+	for objname in pymol.cmd.get_names('objects', True):
+		subselection = selection + ' and ' + objname
+		for chain in pymol.cmd.get_chains(subselection):
+			subsubselection = subselection + ' and c. ' + chain
 
-        for line in f:
-            if "DBREF" not in line: continue
-            if line[26:29] != "UNP": continue
-            ids[line[12]] = line[33:39]
-        f.close()
+			if gray: pymol.cmd.color('gray', subsubselection)
 
-        for i in sorted(ids):
-            s = subprocess.check_output(["curl", "http://www.uniprot.org/uniprot/"+ids[i]+".fasta"])
-            s = s.split("\n")
-            seqs[i] = ">" + filename + ":" + ids[i] + ":" + i + "\n"
-            for ss in s[1:]:
-                seqs[i] += ss
+			seqdict = _sele2seqdict(subsubselection)
+			numbseq = _sele2numbseq(subsubselection)[chain]
+			fasta = '>sequence\n' + numbseq.get_seq()
 
-        p = Bio.PDB.PDBParser(filename)
+			if 'PFAMDB' not in os.environ: raise KeyError('Environment variable $PFAMDB unset')
+			tf = tempfile.NamedTemporaryFile()
+			tf.write(fasta)
+			tf.flush()
 
-        struc = p.get_structure(selection, filename)
+			p = subprocess.Popen(['hmmscan', '--cpu', '4', '--noali', '--cut_ga', '-o', '/dev/null', '--domtblout', '/dev/stdout', os.environ['PFAMDB'], tf.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        atomseqs = {}
+			out, err = p.communicate()
 
-        for c in struc.get_chains():
-            atomseqs[c.get_id()] = ">" + filename + ":" + "ATOM:" + c.get_id() + "\n"
-            for r in c.get_residues():
-                try: atomseqs[c.get_id()] += Bio.PDB.protein_letters_3to1[r.get_resname()]
-                except KeyError: pass
+			for l in out.split('\n'):
+				if not l.strip(): continue
+				elif l.startswith('#'): continue
+				else:
+					sl = l.split()
+					domshort = sl[0]
+					domacc = sl[1]
+					domaccshort = sl[1].split('.')[0]
+					envspan = [int(x) for x in sl[19:21]]
+					domsel = subsubselection + ' and i. {}-{}'.format(*envspan)
 
-        for i in sorted(ids):
-            f = open(".seq1.tmp", "w")
-            f.write(seqs[i])
-            f.close()
-            f = open(".seq2.tmp", "w")
-            f.write(atomseqs[i])
+					domain = {'acc':domacc, 'short':domshort, 'accshort':domaccshort, 'span':envspan, 'selection':domsel}
 
-            f = open(".seq1.tmp")
-            f.close()
-            f = open(".seq2.tmp")
-            f.close()
+					try: domains[domaccshort].append(domain)
+					except KeyError: domains[domaccshort] = [domain]
 
-            os.system("needle -gapopen 10 -gapextend 0.5 -asequence .seq1.tmp -bsequence .seq2.tmp -outfile /dev/stdout")
+					domclan = dom2clan[domaccshort]
+					
+					try: clans[domclan].append(domain)
+					except KeyError: clans[domclan] = [domain]
 
-            os.remove(".seq1.tmp")
-            os.remove(".seq2.tmp")
+		for i, clanacc in enumerate(sorted(clans)):
+			try: x = i/(len(clans)-1)
+			except ZeroDivisionError: x = 0.5
+			for domain in clans[clanacc]:
+				
+				saturation = random.randint(5, 8)*10
+				value = random.randint(4, 9)*10
+				#def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
+				
+				color = spectrum1(x=x, sstart=saturation, sstop=saturation, vstart=value, vstop=value)
 
-    else:
+				pymol.cmd.color(color, domain['selection'])
 
-        #if CIF, turn the CIF file into a dict
-        #TODO: look for the UNP DBREF equivalents and download too because MMCIF2Dict is horrendously slow
 
-        parseme = Bio.PDB.MMCIF2Dict.MMCIF2Dict(filename)
-        #if network disabled...
-        raw_seqs = zip(\
-parseme["_pdbx_poly_seq_scheme.pdb_strand_id"],\
-parseme["_pdbx_poly_seq_scheme.mon_id"],\
-parseme["_pdbx_poly_seq_scheme.auth_seq_num"])#,\
 
-        for l in raw_seqs:
+def paint_tmss(selection=None, gray=False):
+	gray = _str2bool(gray)
+	selection = _resolve_selection(selection)
 
-            #initiate a basic FASTA header and elongate
+	for objname in pymol.cmd.get_names('objects', True):
+		subselection = selection + ' and ' + objname
+		for chain in pymol.cmd.get_chains(subselection):
+			subsubselection = subselection + ' and c. ' + chain
+			seqdict = _sele2seqdict(subsubselection)
+			numbseq = _sele2numbseq(subsubselection)[chain]
+			fasta = '>sequence\n' + numbseq.get_seq()
 
-            try:
-                seqs[l[0]] += Bio.PDB.protein_letters_3to1[l[1]]
-            except KeyError:
-                seqs[l[0]] = ">" + filename + ":" + l[0] + "\n" + Bio.PDB.protein_letters_3to1[l[1]]
+			p = subprocess.Popen(['hmmtop', '-if=--', '-of=--', '-sf=FAS', '-pi=spred', '-is=pseudo'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+			out, err = p.communicate(input=fasta.encode('utf-8'))
+			indices = re.findall('(?:[0-9] *)+$', out)[0].split()[1:]
+			seq = numbseq.get_seq()
+			if not indices: continue
+			indices = [int(x) for x in indices]
+			spans = []
+			paintme = []
+			for i in range(0, len(indices), 2):
+				span = seq[indices[i]-1:indices[i+1]]
+				paintme.append(numbseq.find_closest(span))
 
-        #relevant = (\
-#parseme["_struct_ref.id"],\
-#parseme["_struct_ref.db_name"],\
-#parseme["_struct_ref.db_code"],\
-#parseme["_struct_ref.pdbx_db_accession"],\
-#parseme["_struct_ref.entity_id"])
+			if gray: pymol.cmd.color('gray', subsubselection)
+			for i, span in enumerate(paintme):
+				try: x = 1. * i / (len(paintme)-1)
+				except ZeroDivisionError: x = 0.5
 
-        #for i in relevant: print(i)
+				start, stop = span.get_range()
+				pymol.cmd.color(spectrum1(x), subsubselection + ' and i. {}-{}'.format(start, stop))
 
-        #return
-    helices = {}
+def chview(view='cartoon', selection=None, hidelig=False):
+	selection = _resolve_selection(selection)
+	if not hidelig: selection += ' and not het'
+	pymol.cmd.hide('everything', selection)
+	pymol.cmd.show(view, selection)
 
-    o = selection
+def _str2bool(s):
+	if not s: return False
+	elif s.lower().startswith('f'): return False
+	elif s.lower().startswith('n'): return False
+	elif s.lower().startswith('0'): return False
 
-    for k in sorted(seqs.keys()):
+	elif s.lower().startswith('t'): return True
+	elif s.lower().startswith('y'): return True
+	elif s.lower().startswith('1'): return True
+	else: return bool(s)
 
-        #prepare to run hmmtop
+pymol.cmd.extend('pbcopy', pbcopy)
+pymol.cmd.extend('xclip', xclip)
 
-        p = subprocess.Popen(["hmmtop", "-if=--", "-of=--"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+pymol.cmd.extend('cv', chview)
 
-        #run HMMTOP, piping in the sequence and piping out the output
+pymol.cmd.extend('tmselect', select_tmss)
+pymol.cmd.extend('tmpaint', paint_tmss)
 
-        tmss = p.communicate(seqs[k])[0]
+pymol.cmd.extend('dompaint', paint_pfam)
 
-        tmss = tmss.split()
-
-        c = tmss[2][-1]
-
-        #begin constructing the dicts containing the helix objects
-
-        try: helices[o][c] = []
-        except KeyError: helices[o] = {c:[]}
-
-        #parse HMMTOP output
-
-        for i in range(5, len(tmss) - 1, 2):
-            helices[o][c].append(Helix(tmss[i], tmss[i+1], c))
-
-    #recurse through the helices, coloring them and stuff
-
-    for c in helices[o].keys():
-        for i in range(len(helices[o][c])):
-            hc = (gradient(len(helices[o][c]), start_hue + objid*offset, end_hue + objid*offset, v=int(shade_now)), helices[o][c][i])
-            a = str(int(helices[o][c][i].start) - expand)
-            b = str(int(helices[o][c][i].end) + expand)
-            pymol.cmd.color(hc[0][i], o + " and c. " + c + " and i. " + a + "-" + b)
-            if termini:
-                pymol.cmd.color("nitrogen", o + " and c. " + c + " and i. " + str(int(a)-1+1))
-                pymol.cmd.color("oxygen", o + " and c. " + c + " and i. " + str(int(b)+1-1))
-        shade_now *= shade
-        objid += 1
-
-def draw_line(start, end, name="line1"):
-	c1 = [1,1,1]
-	c2 = [1,1,1]
-	start = eval(start)
-	end = eval(end)
-	pymol.cmd.load_cgo([9.0] + start + end + [0.02] + [1,1,1,1,1,1], name)
-
-def draw_axes(extend=10, name="axes"):
-	extend = float(extend)
-	pymol.cmd.load_cgo([9.0] + [0,0,0] + [extend,0,0] + [0.3] + [1,0,0] + [1,0,0], name)
-	pymol.cmd.load_cgo([9.0] + [0,0,0] + [0,extend,0] + [0.3] + [0,1,0] + [0,1,0], name)
-	pymol.cmd.load_cgo([9.0] + [0,0,0] + [0,0,extend] + [0.3] + [0,0,1] + [0,0,1], name)
-
-def draw_axis(start, end, name="cylinder1"):
-	c1 = (0,0,1)
-	c2 = (1,0,0)
-	#fstart = [float(start[0]), float(start[1]), float(start[1])]
-	#fend = [float(end[0]), float(end[1]), float(end[2])]
-	fstart = eval(start)
-	fend = eval(end)
-	pymol.cmd.load_cgo([9.0] + fstart + fend + [2] + list(c1) + list(c2), name)
-
-def draw_point(coord, rad=1.0, name="points1"):
-	c = (1,0,0)
-	rad = float(rad)
-	fstart = eval(coord)
-	fend = [fstart[0] + 1, fstart[1] + 1, fstart[2] + 1]
-	#pymol.cmd.load_cgo([7.0] + fstart + [rad] + [1] + list(c) + list(c), name)
-	pymol.cmd.load_cgo([7.0] + fstart + [rad] + [1], name)
-
-def draw_plane(point, normal, name="plane1", color="[1,0,0]", radius=20):
-	def norm(x):
-		s = 0
-		for i in x: s += i**2
-		return s**.5
-	def mult(c, x):
-		y = []	
-		for i in x: y.append(c*i)
-		return y
-	def add(x, y):
-		z = []
-		for i in zip(x, y):
-			z.append(i[0] + i[1])
-		return z
-	radius = float(radius)
-	point = eval(point)
-	normal = eval(normal)
-	color1 = eval(color)
-	import random
-	x = list(range(3))
-	random.shuffle(x)
-	color2 = []
-	for i in x: color2.append(color1[i])
-	#endpoint = add(point, mult(0.1/norm(normal), normal))
-	endpoint = add(point, normal)
-
-	pymol.cmd.load_cgo([25.0, 0.5, 9.0] + point + endpoint + [radius] + color1 + color1, name)
-
-pymol.cmd.extend("paint_tmss", paint_tmss)
-pymol.cmd.extend("pt", paint_tmss)
-pymol.cmd.extend("paint_tmss_orig", paint_tmss_orig)
-pymol.cmd.extend("hmmtop", hmmtop)
-
-pymol.cmd.extend("xclip", xclip)
-pymol.cmd.extend("pbcopy", pbcopy)
-
-pymol.cmd.extend("draw_axis", draw_axis)
-pymol.cmd.extend("draw_axes", draw_axes)
-pymol.cmd.extend("draw_line", draw_line)
-pymol.cmd.extend("draw_point", draw_point)
-pymol.cmd.extend("draw_plane", draw_plane)
