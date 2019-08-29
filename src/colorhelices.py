@@ -230,9 +230,9 @@ def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
 	)
 	return '0x%02.x%02.x%02.x' % rgb
 
-def vegalike(i, maxi, gamma=0.0):
-	if maxi <= 10:
-		m = i % 10
+def vegalike(i, maxi, gamma=0.0, delta=1.0):
+	if maxi <= 9:
+		m = i % 9
 		if m == 0: rgbtuple = (0x1f, 0x77, 0xb4)
 		elif m == 1: rgbtuple = (0xff, 0x7f, 0x0e)
 		elif m == 2: rgbtuple = (0x2c, 0xa0, 0x2c)
@@ -240,11 +240,12 @@ def vegalike(i, maxi, gamma=0.0):
 		elif m == 4: rgbtuple = (0x94, 0x67, 0xbd)
 		elif m == 5: rgbtuple = (0x8c, 0x56, 0x4b)
 		elif m == 6: rgbtuple = (0xe3, 0x77, 0xc2)
-		elif m == 7: rgbtuple = (0x7f, 0x7f, 0x7f)
-		elif m == 8: rgbtuple = (0xbc, 0xbd, 0x22)
-		elif m == 9: rgbtuple = (0x17, 0xbe, 0xcf)
-	elif maxi <= 20:
-		m = i % 20
+		#elif m == 7: rgbtuple = (0x7f, 0x7f, 0x7f)
+		elif m == 7: rgbtuple = (0xbc, 0xbd, 0x22)
+		elif m == 8: rgbtuple = (0x17, 0xbe, 0xcf)
+	#elif maxi <= 20:
+	else:
+		m = i % 18
 		if m == 0: rgbtuple = (0x1f, 0x77, 0xb4)
 		elif m == 1: rgbtuple = (0xae, 0xc7, 0xe8)
 		elif m == 2: rgbtuple = (0xff, 0x7f, 0x0e)
@@ -259,12 +260,12 @@ def vegalike(i, maxi, gamma=0.0):
 		elif m == 11: rgbtuple = (0xc4, 0x9c, 0x94)
 		elif m == 12: rgbtuple = (0xe3, 0x77, 0xc2)
 		elif m == 13: rgbtuple = (0xf7, 0xb6, 0xd2)
-		elif m == 14: rgbtuple = (0x7f, 0x7f, 0x7f)
-		elif m == 15: rgbtuple = (0xc7, 0xc7, 0xc7)
-		elif m == 16: rgbtuple = (0xbc, 0xbd, 0x22)
-		elif m == 17: rgbtuple = (0xdb, 0xdb, 0x8d)
-		elif m == 18: rgbtuple = (0x17, 0xbe, 0xcf)
-		elif m == 19: rgbtuple = (0x9e, 0xda, 0xe5)
+		#elif m == 14: rgbtuple = (0x7f, 0x7f, 0x7f)
+		#elif m == 14: rgbtuple = (0xc7, 0xc7, 0xc7)
+		elif m == 14: rgbtuple = (0xbc, 0xbd, 0x22)
+		elif m == 15: rgbtuple = (0xdb, 0xdb, 0x8d)
+		elif m == 16: rgbtuple = (0x17, 0xbe, 0xcf)
+		elif m == 17: rgbtuple = (0x9e, 0xda, 0xe5)
 
 	def _desaturate(rgbtuple, x):
 		mean = sum(rgbtuple)/3.
@@ -274,8 +275,12 @@ def vegalike(i, maxi, gamma=0.0):
 
 		#this should allow for increasing saturation (use negative x)
 		return tuple([int(rgbtuple[i]*(1-x) + mean*(x)) for i in range(3)])
+
+	def _mult(rgbtuple, x):
+		return tuple([int(rgbtuple[i]*x) for i in range(3)])
 		
 	rgbtuple = _desaturate(rgbtuple, gamma)
+	rgbtuple = _mult(rgbtuple, delta)
 
 	#if gamma != 1.0:
 	#	rgbtuple = tuple([int(0xff * (x/0xff)**gamma) for x in rgbtuple])
@@ -355,7 +360,7 @@ def paint_pfam(selection=None, gray=True):
 				#def spectrum1(x, hstart=240, hstop=0, sstart=60, sstop=60, vstart=90, vstop=90):
 				
 				color = spectrum1(x=x, sstart=saturation, sstop=saturation, vstart=value, vstop=value)
-				color = vegalike(i, len(clans), gamma=(3-j)/3.)
+				color = vegalike(i, len(clans), gamma=0.25 - j/6., delta=1.2*0.8**j)
 
 				pymol.cmd.color(color, domain['selection'])
 
@@ -441,6 +446,56 @@ def _str2bool(s):
 		elif s.lower().startswith('y'): return True
 		elif s.lower().startswith('1'): return True
 	else: return bool(s)
+
+def rasmolcolor(selection=None):
+	selection = _resolve_selection(selection)
+
+	pymol.cmd.color('0xE60A0A', selection + ' and r. ASP+GLU')
+	pymol.cmd.color('0xE6E600', selection + ' and r. CYS+MET')
+	pymol.cmd.color('0x145AFF', selection + ' and r. LYS+ARG')
+	pymol.cmd.color('0xFA9600', selection + ' and r. SER+THR')
+	pymol.cmd.color('0x3232AA', selection + ' and r. PHE+TYR')
+	pymol.cmd.color('0x00DCDC', selection + ' and r. ASN+GLN')
+	pymol.cmd.color('0xEBEBEB', selection + ' and r. GLY')
+	pymol.cmd.color('0x0F820F', selection + ' and r. LEU+VAL+ILE')
+	pymol.cmd.color('0xC8C8C8', selection + ' and r. ALA')
+	pymol.cmd.color('0xB45AB4', selection + ' and r. TRP')
+	pymol.cmd.color('0x8282D2', selection + ' and r. HIS')
+	pymol.cmd.color('0xDC9682', selection + ' and r. PRO')
+
+def shapelycolor(selection=None):
+	selection = _resolve_selection(selection)
+
+	pymol.cmd.color('0xA00042', selection + ' and r. ASP+THR')
+	pymol.cmd.color('0x660000', selection + ' and r. GLU')
+	pymol.cmd.color('0xFFFF70', selection + ' and r. CYS')
+	pymol.cmd.color('0xB8A042', selection + ' and r. MET+TYR')
+	pymol.cmd.color('0x4747B8', selection + ' and r. LYS')
+	pymol.cmd.color('0x00007C', selection + ' and r. ARG')
+	pymol.cmd.color('0xFF4C4C', selection + ' and r. SER+GLN')
+	pymol.cmd.color('0x534C42', selection + ' and r. PHE+PRO+TRP')
+	pymol.cmd.color('0xFF7C70', selection + ' and r. ASN')
+	pymol.cmd.color('0xFFFFFF', selection + ' and r. GLY+VAL')
+	pymol.cmd.color('0x004C00', selection + ' and r. ILE')
+	pymol.cmd.color('0x455E45', selection + ' and r. LEU')
+	pymol.cmd.color('0x8CFF8C', selection + ' and r. ALA')
+	pymol.cmd.color('0x7070FF', selection + ' and r. HIS')
+
+def memecolor(selection=None): 
+	selection = _resolve_selection(selection)
+
+	pymol.cmd.color('blue', selection + ' and r. ALA+CYS+PHE+ILE+LEU+MET+VAL+TRP')
+	pymol.cmd.color('magenta', selection + ' and r. ASP+GLU')
+	pymol.cmd.color('orange', selection + ' and r. GLY')
+	pymol.cmd.color('pink', selection + ' and r. HIS')
+	pymol.cmd.color('red', selection + ' and r. LYS+ARG')
+	pymol.cmd.color('green', selection + ' and r. ASN+GLN+SER+THR')
+	pymol.cmd.color('yellow', selection + ' and r. PRO')
+	pymol.cmd.color('cyan', selection + ' and r. TYR')
+
+pymol.cmd.extend('rasmolcolor', rasmolcolor)
+pymol.cmd.extend('shapelycolor', shapelycolor)
+pymol.cmd.extend('memecolor', memecolor)
 
 pymol.cmd.extend('pbcopy', pbcopy)
 pymol.cmd.extend('xclip', xclip)
