@@ -493,9 +493,23 @@ def memecolor(selection=None):
 	pymol.cmd.color('yellow', selection + ' and r. PRO')
 	pymol.cmd.color('cyan', selection + ' and r. TYR')
 
+def clustalcolor(selection=None): 
+	selection = _resolve_selection(selection)
+
+	pymol.cmd.color('blue', selection + ' and r. ALA+PHE+ILE+LEU+MET+VAL+TRP')
+	pymol.cmd.color('pink', selection + ' and r. CYS')
+	pymol.cmd.color('magenta', selection + ' and r. ASP+GLU')
+	pymol.cmd.color('orange', selection + ' and r. GLY')
+	pymol.cmd.color('red', selection + ' and r. LYS+ARG')
+	pymol.cmd.color('green', selection + ' and r. ASN+GLN+SER+THR')
+	pymol.cmd.color('yellow', selection + ' and r. PRO')
+	pymol.cmd.color('teal', selection + ' and r. HIS+TYR')
+
+
 pymol.cmd.extend('rasmolcolor', rasmolcolor)
 pymol.cmd.extend('shapelycolor', shapelycolor)
 pymol.cmd.extend('memecolor', memecolor)
+pymol.cmd.extend('clustalcolor', clustalcolor)
 
 pymol.cmd.extend('pbcopy', pbcopy)
 pymol.cmd.extend('xclip', xclip)
